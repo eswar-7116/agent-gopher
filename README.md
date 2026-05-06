@@ -1,2 +1,2 @@
-# agent-goose
+# agent-gopher
 Agentic AI in Golang 🦫
