@@ -68,17 +68,22 @@ func main() {
 	}
 	ctx := context.Background()
 
-	log.Println("Sending messages to LLM...")
-	resp, err := client.Chat.Completions.New(ctx, params)
-	if err != nil {
-		log.Fatal(err)
-	}
+	for {
+		log.Println("Sending messages to LLM...")
+		resp, err := client.Chat.Completions.New(ctx, params)
+		if err != nil {
+			log.Fatal(err)
+		}
 
-	toolCalls := resp.Choices[0].Message.ToolCalls
-	if len(toolCalls) == 0 {
-		log.Printf("No function call")
-	} else {
-		for _, toolCall := range toolCalls {
+		msg := resp.Choices[0].Message
+		params.Messages = append(params.Messages, openai.AssistantMessage(msg.Content))
+
+		if len(msg.ToolCalls) == 0 {
+			fmt.Println("\nAssistant:", msg.Content)
+			break
+		}
+
+		for _, toolCall := range msg.ToolCalls {
 			if toolCall.Function.Name == "read_file" {
 				var args map[string]any
 				err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
@@ -93,13 +98,4 @@ func main() {
 			}
 		}
 	}
-
-	log.Println("Sending tool responses to LLM...")
-	resp, err = client.Chat.Completions.New(ctx, params)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println()
-	fmt.Println(resp.Choices[0].Message.Content)
 }
