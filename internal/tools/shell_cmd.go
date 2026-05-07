@@ -41,14 +41,14 @@ func (ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, erro
 	}
 
 	fmt.Printf("Agent wants to executed %q command in your shell (y/N): ", cmdStr)
-	var permission rune
-	n, err := fmt.Scanf("%c", &permission)
+	var permission string
+	_, err := fmt.Scanln(&permission)
 
-	if err != nil || n == 0 {
+	if err != nil || len(permission) == 0 {
 		return nil, fmt.Errorf("permission denied (defaulted to No)")
 	}
-	if permission != 'y' && permission != 'Y' {
-		return nil, fmt.Errorf("user denied the permission to execute command %q", cmdStr)
+	if strings.ToLower(permission)[0] != 'y' {
+		return nil, fmt.Errorf("user denied the permission")
 	}
 
 	cmd := exec.CommandContext(ctx, shell, "-c", cmdStr)
