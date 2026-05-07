@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/eswar-7116/agent-gopher/internal/tools"
 	"github.com/joho/godotenv"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -93,7 +94,7 @@ func main() {
 
 				fpath := args["filepath"].(string)
 				log.Println("Reading", fpath)
-				contents, err := readFile(fpath)
+				contents, err := tools.ReadFile(fpath)
 				params.Messages = append(params.Messages, openai.ToolMessage(contents, toolCall.ID))
 			}
 		}

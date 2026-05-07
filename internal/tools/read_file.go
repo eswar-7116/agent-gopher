@@ -1,8 +1,8 @@
-package main
+package tools
 
 import "os"
 
-func readFile(filepath string) (string, error) {
+func ReadFile(filepath string) (string, error) {
 	data, err := os.ReadFile(filepath)
 	if err != nil {
 		return "", err
