@@ -48,7 +48,7 @@ func (ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, erro
 	if err != nil || len(permission) == 0 {
 		return nil, fmt.Errorf("permission denied (defaulted to No)")
 	}
-	if strings.ToLower(permission)[0] != 'y' {
+	if strings.ToLower(permission) != "y" {
 		return nil, fmt.Errorf("user denied the permission")
 	}
 
