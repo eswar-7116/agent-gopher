@@ -25,9 +25,10 @@ func (w WriteFileTool) Definition() openai.ChatCompletionToolUnionParam {
 				"type":        "string",
 				"description": "The content to write to the file",
 			},
-			"append": map[string]string{
+			"append": map[string]any{
 				"type":        "boolean",
 				"description": "Whether to append to the file instead of overwriting",
+				"default":     false,
 			},
 		},
 		"required": []string{"filepath", "contents"},
