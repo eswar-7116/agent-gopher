@@ -19,6 +19,8 @@ func Registry() map[string]Tool {
 		ReadFileTool{},
 		WriteFileTool{},
 		ShellCmdTool{},
+		ReadLogsTool{},
+		KillProcessTool{},
 	}
 
 	registry := make(map[string]Tool, len(tools))
