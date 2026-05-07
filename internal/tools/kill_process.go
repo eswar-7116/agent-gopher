@@ -32,9 +32,9 @@ func (KillProcessTool) Execute(_ context.Context, args map[string]any) (any, err
 		return nil, fmt.Errorf("missing or invalid 'id' argument")
 	}
 
-	bgProcessesMu.Lock()
-	proc, exists := bgProcesses[id]
-	bgProcessesMu.Unlock()
+	BgProcessesMu.Lock()
+	proc, exists := BgProcesses[id]
+	BgProcessesMu.Unlock()
 
 	if !exists {
 		return nil, fmt.Errorf("no background process found with id %q (may have already exited)", id)

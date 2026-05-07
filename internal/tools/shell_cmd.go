@@ -17,12 +17,13 @@ type BackgroundProcess struct {
 	ID      string
 	Cmd     string
 	LogFile string
+	PID     int
 	cancel  context.CancelFunc
 }
 
 var (
-	bgProcesses   = map[string]*BackgroundProcess{}
-	bgProcessesMu sync.Mutex
+	BgProcesses   = map[string]*BackgroundProcess{}
+	BgProcessesMu sync.Mutex
 )
 
 // ShellCmdTool implements Tool for executing shell commands
@@ -115,21 +116,22 @@ func runBackground(cmdStr, shell string) (any, error) {
 		return nil, fmt.Errorf("failed to start background process: %v", err)
 	}
 
-	bgProcessesMu.Lock()
-	bgProcesses[id] = &BackgroundProcess{
+	BgProcessesMu.Lock()
+	BgProcesses[id] = &BackgroundProcess{
 		ID:      id,
 		Cmd:     cmdStr,
 		LogFile: logFilePath,
+		PID:     cmd.Process.Pid,
 		cancel:  cancel,
 	}
-	bgProcessesMu.Unlock()
+	BgProcessesMu.Unlock()
 
 	go func() {
 		cmd.Wait()
 		logFile.Close()
-		bgProcessesMu.Lock()
-		delete(bgProcesses, id)
-		bgProcessesMu.Unlock()
+		BgProcessesMu.Lock()
+		delete(BgProcesses, id)
+		BgProcessesMu.Unlock()
 	}()
 
 	return map[string]any{

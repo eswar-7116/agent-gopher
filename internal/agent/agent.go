@@ -41,7 +41,7 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 		}
 
 		msg := resp.Choices[0].Message
-		a.messages = append(a.messages, msg.ToParam())
+		a.messages = append(a.messages, openai.AssistantMessage(msg.Content))
 
 		if len(msg.ToolCalls) == 0 {
 			fmt.Println("\nAgent:", msg.Content)
