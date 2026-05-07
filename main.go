@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/shared"
 )
 
 func main() {
@@ -47,13 +49,57 @@ func main() {
 				},
 			},
 		},
+		Tools: []openai.ChatCompletionToolUnionParam{
+			openai.ChatCompletionFunctionTool(shared.FunctionDefinitionParam{
+				Name:        "read_file",
+				Description: openai.String("Get the contents of the given file"),
+				Parameters: openai.FunctionParameters{
+					"type": "object",
+					"properties": map[string]any{
+						"filepath": map[string]string{
+							"type":        "string",
+							"description": "The path to the file to be read, e.g., 'config.json' or 'main.go'",
+						},
+					},
+					"required": []string{"filepath"},
+				},
+			}),
+		},
 	}
 	ctx := context.Background()
 
+	log.Println("Sending messages to LLM...")
 	resp, err := client.Chat.Completions.New(ctx, params)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	toolCalls := resp.Choices[0].Message.ToolCalls
+	if len(toolCalls) == 0 {
+		log.Printf("No function call")
+	} else {
+		for _, toolCall := range toolCalls {
+			if toolCall.Function.Name == "read_file" {
+				var args map[string]any
+				err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
+				if err != nil {
+					log.Fatalln(err)
+				}
+
+				fpath := args["filepath"].(string)
+				log.Println("Reading", fpath)
+				contents, err := readFile(fpath)
+				params.Messages = append(params.Messages, openai.ToolMessage(contents, toolCall.ID))
+			}
+		}
+	}
+
+	log.Println("Sending tool responses to LLM...")
+	resp, err = client.Chat.Completions.New(ctx, params)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println()
 	fmt.Println(resp.Choices[0].Message.Content)
 }
