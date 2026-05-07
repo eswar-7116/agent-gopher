@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eswar-7116/agent-gopher/internal/tools"
 )
@@ -97,5 +98,50 @@ func TestShellCmd_Execute_CommandError(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("expected error for failing command (exit 1), but got nil")
+	}
+}
+
+func TestShellCmd_Execute_Background(t *testing.T) {
+	tool := tools.ShellCmdTool{}
+
+	simulateStdin(t, "y\n")
+
+	res, err := tool.Execute(t.Context(), map[string]any{
+		"cmd":        "echo 'background process'",
+		"background": true,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, but got: %v", err)
+	}
+
+	resMap, ok := res.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map[string]any, got %T", res)
+	}
+
+	id, ok := resMap["id"].(string)
+	if !ok || id == "" {
+		t.Errorf("expected valid id, got %v", resMap["id"])
+	}
+
+	logFile, ok := resMap["log_file"].(*os.File)
+	if !ok || logFile == nil {
+		t.Errorf("expected valid *os.File for log_file, got %v", resMap["log_file"])
+	}
+
+	// Poll until the background process writes output
+	var content []byte
+	success := false
+	for i := 0; i < 5; i++ {
+		content, err = os.ReadFile(logFile.Name())
+		if err == nil && strings.Contains(string(content), "background process") {
+			success = true
+			break
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	if !success {
+		t.Errorf("expected log file to contain 'background process', got %q", string(content))
 	}
 }
