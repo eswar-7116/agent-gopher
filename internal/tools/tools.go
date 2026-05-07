@@ -1,6 +1,8 @@
 package tools
 
 import (
+	"context"
+
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/shared"
 )
@@ -8,7 +10,7 @@ import (
 type Tool interface {
 	Name() string
 	Definition() openai.ChatCompletionToolUnionParam
-	Execute(args map[string]any) (any, error)
+	Execute(ctx context.Context, args map[string]any) (any, error)
 }
 
 // Registry of all available tools

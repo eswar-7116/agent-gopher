@@ -18,7 +18,7 @@ func TestReadFile(t *testing.T) {
 	}
 
 	tool := tools.ReadFileTool{}
-	result, err := tool.Execute(map[string]any{"filepath": testFilePath})
+	result, err := tool.Execute(t.Context(), map[string]any{"filepath": testFilePath})
 	if err != nil {
 		t.Fatalf("expected no error, but got: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestReadFile(t *testing.T) {
 
 func TestReadFile_NonExistentFile(t *testing.T) {
 	tool := tools.ReadFileTool{}
-	_, err := tool.Execute(map[string]any{"filepath": "/does/not/exist.txt"})
+	_, err := tool.Execute(t.Context(), map[string]any{"filepath": "/does/not/exist.txt"})
 	if err == nil {
 		t.Fatal("expected an error for non-existent file, but got nil")
 	}
@@ -43,7 +43,7 @@ func TestReadFile_NonExistentFile(t *testing.T) {
 
 func TestReadFile_MissingFilepathArg(t *testing.T) {
 	tool := tools.ReadFileTool{}
-	_, err := tool.Execute(map[string]any{})
+	_, err := tool.Execute(t.Context(), map[string]any{})
 	if err == nil {
 		t.Fatal("expected an error for missing 'filepath' arg, but got nil")
 	}
@@ -51,7 +51,7 @@ func TestReadFile_MissingFilepathArg(t *testing.T) {
 
 func TestReadFile_WrongTypeFilepathArg(t *testing.T) {
 	tool := tools.ReadFileTool{}
-	_, err := tool.Execute(map[string]any{"filepath": 42})
+	_, err := tool.Execute(t.Context(), map[string]any{"filepath": 42})
 	if err == nil {
 		t.Fatal("expected an error for wrong-typed 'filepath' arg, but got nil")
 	}

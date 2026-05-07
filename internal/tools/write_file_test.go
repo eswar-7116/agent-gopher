@@ -13,7 +13,7 @@ func TestWriteFile(t *testing.T) {
 	contents := "This is a test file"
 
 	tool := tools.WriteFileTool{}
-	_, err := tool.Execute(map[string]any{
+	_, err := tool.Execute(t.Context(), map[string]any{
 		"filepath": testFilePath,
 		"contents": contents,
 		"append":   false,
@@ -44,7 +44,7 @@ func TestAppendFile(t *testing.T) {
 	}
 
 	tool := tools.WriteFileTool{}
-	_, err = tool.Execute(map[string]any{
+	_, err = tool.Execute(t.Context(), map[string]any{
 		"filepath": testFilePath,
 		"contents": appendContent,
 		"append":   true,
@@ -65,7 +65,7 @@ func TestAppendFile(t *testing.T) {
 
 func TestWriteFile_InvalidDirectory(t *testing.T) {
 	tool := tools.WriteFileTool{}
-	_, err := tool.Execute(map[string]any{
+	_, err := tool.Execute(t.Context(), map[string]any{
 		"filepath": "/does/not/exist/file.txt",
 		"contents": "hello",
 	})
@@ -76,7 +76,7 @@ func TestWriteFile_InvalidDirectory(t *testing.T) {
 
 func TestWriteFile_MissingFilepathArg(t *testing.T) {
 	tool := tools.WriteFileTool{}
-	_, err := tool.Execute(map[string]any{"contents": "hello"})
+	_, err := tool.Execute(t.Context(), map[string]any{"contents": "hello"})
 	if err == nil {
 		t.Fatal("expected an error for missing 'filepath' arg, but got nil")
 	}
@@ -84,7 +84,7 @@ func TestWriteFile_MissingFilepathArg(t *testing.T) {
 
 func TestWriteFile_MissingContentsArg(t *testing.T) {
 	tool := tools.WriteFileTool{}
-	_, err := tool.Execute(map[string]any{"filepath": "/tmp/x.txt"})
+	_, err := tool.Execute(t.Context(), map[string]any{"filepath": "/tmp/x.txt"})
 	if err == nil {
 		t.Fatal("expected an error for missing 'contents' arg, but got nil")
 	}
@@ -93,7 +93,7 @@ func TestWriteFile_MissingContentsArg(t *testing.T) {
 func TestWriteFile_ResultIsMap(t *testing.T) {
 	testFilePath := filepath.Join(t.TempDir(), "result.txt")
 	tool := tools.WriteFileTool{}
-	result, err := tool.Execute(map[string]any{
+	result, err := tool.Execute(t.Context(), map[string]any{
 		"filepath": testFilePath,
 		"contents": "data",
 	})

@@ -52,7 +52,7 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 			name := toolCall.Function.Name
 			log.Printf("Executing tool: %s\n", name)
 
-			toolResult := a.executeToolCall(name, toolCall.Function.Arguments)
+			toolResult := a.executeToolCall(ctx, name, toolCall.Function.Arguments)
 			a.messages = append(a.messages, openai.ToolMessage(toolResult, toolCall.ID))
 		}
 	}
@@ -60,7 +60,7 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 	return nil
 }
 
-func (a *Agent) executeToolCall(name, arguments string) string {
+func (a *Agent) executeToolCall(ctx context.Context, name, arguments string) string {
 	tool, ok := a.registry[name]
 	if !ok {
 		return fmt.Sprintf("Error: unknown tool %q", name)
@@ -71,7 +71,7 @@ func (a *Agent) executeToolCall(name, arguments string) string {
 		return fmt.Sprintf("Error: failed to parse arguments: %v", err)
 	}
 
-	result, err := tool.Execute(args)
+	result, err := tool.Execute(ctx, args)
 	if err != nil {
 		log.Printf("Tool %s returned an error: %v\n", name, err)
 		return fmt.Sprintf("Error: %v", err)

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -13,7 +14,7 @@ import (
 // mock implementation of tools.Tool
 type mockTool struct {
 	name    string
-	execute func(args map[string]any) (any, error)
+	execute func(ctx context.Context, args map[string]any) (any, error)
 }
 
 func (m mockTool) Name() string { return m.name }
@@ -22,9 +23,9 @@ func (m mockTool) Definition() openai.ChatCompletionToolUnionParam {
 		Name: m.name,
 	})
 }
-func (m mockTool) Execute(args map[string]any) (any, error) {
+func (m mockTool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	if m.execute != nil {
-		return m.execute(args)
+		return m.execute(ctx, args)
 	}
 	return nil, nil
 }
@@ -69,7 +70,7 @@ func TestExecuteToolCall(t *testing.T) {
 		registry: map[string]tools.Tool{
 			"mock_tool": mockTool{
 				name: "mock_tool",
-				execute: func(args map[string]any) (any, error) {
+				execute: func(ctx context.Context, args map[string]any) (any, error) {
 					if fail, ok := args["fail"].(bool); ok && fail {
 						return nil, errors.New("tool error")
 					}
@@ -78,7 +79,7 @@ func TestExecuteToolCall(t *testing.T) {
 			},
 			"complex_tool": mockTool{
 				name: "complex_tool",
-				execute: func(args map[string]any) (any, error) {
+				execute: func(ctx context.Context, args map[string]any) (any, error) {
 					return map[string]any{"result": "ok"}, nil
 				},
 			},
@@ -125,7 +126,7 @@ func TestExecuteToolCall(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := agent.executeToolCall(tt.toolName, tt.arguments)
+			result := agent.executeToolCall(t.Context(), tt.toolName, tt.arguments)
 			if result != tt.expected {
 				t.Errorf("expected %q, got %q", tt.expected, result)
 			}

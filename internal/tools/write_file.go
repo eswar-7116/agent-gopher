@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -33,7 +34,7 @@ func (w WriteFileTool) Definition() openai.ChatCompletionToolUnionParam {
 	})
 }
 
-func (WriteFileTool) Execute(args map[string]any) (any, error) {
+func (WriteFileTool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	fpath, ok := args["filepath"].(string)
 	if !ok {
 		return nil, fmt.Errorf("missing or invalid 'filepath' argument")

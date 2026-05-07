@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -27,7 +28,7 @@ func (r ReadFileTool) Definition() openai.ChatCompletionToolUnionParam {
 	})
 }
 
-func (ReadFileTool) Execute(args map[string]any) (any, error) {
+func (ReadFileTool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	fpath, ok := args["filepath"].(string)
 	if !ok {
 		return nil, fmt.Errorf("missing or invalid 'filepath' argument")
