@@ -12,8 +12,8 @@ type WriteFileTool struct{}
 
 func (WriteFileTool) Name() string { return "write_file" }
 
-func (WriteFileTool) Definition() openai.ChatCompletionToolUnionParam {
-	return newFunctionTool("write_file", "Write or append content to a file", map[string]any{
+func (w WriteFileTool) Definition() openai.ChatCompletionToolUnionParam {
+	return newFunctionTool(w.Name(), "Write or append content to a file", map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"filepath": map[string]string{
