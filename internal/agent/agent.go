@@ -44,7 +44,7 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 		a.messages = append(a.messages, openai.AssistantMessage(msg.Content))
 
 		if len(msg.ToolCalls) == 0 {
-			fmt.Println("\nAssistant:", msg.Content)
+			fmt.Println("\nAgent:", msg.Content)
 			break
 		}
 
