@@ -1,13 +1,17 @@
 package tools
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/openai/openai-go/v3"
@@ -64,15 +68,25 @@ func (ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, erro
 	}
 
 	// Ask user permission
+	tty, err := os.Open("/dev/tty")
+	if err != nil {
+		return nil, fmt.Errorf("failed to open tty: %v", err)
+	}
+	defer tty.Close()
+
 	kind := "command"
 	if background {
 		kind = "background command"
 	}
 	fmt.Printf("Agent wants to execute %s %q in your shell (y/N): ", kind, cmdStr)
-	var permission string
-	_, err := fmt.Scanln(&permission)
 
-	if err != nil || len(permission) == 0 {
+	var permission string
+	ttyScanner := bufio.NewScanner(tty)
+	if ttyScanner.Scan() {
+		permission = strings.TrimSpace(ttyScanner.Text())
+	}
+
+	if len(permission) == 0 {
 		return nil, fmt.Errorf("permission denied (defaulted to No)")
 	}
 	if strings.ToLower(permission) != "y" {
@@ -87,11 +101,17 @@ func (ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, erro
 
 func runForeground(ctx context.Context, cmdStr, shell string) (any, error) {
 	cmd := exec.CommandContext(ctx, shell, "-c", cmdStr)
+
 	cmd.Cancel = func() error {
 		return cmd.Process.Kill()
 	}
-	out, err := cmd.CombinedOutput()
-	return string(out), err
+
+	var buf bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &buf)
+
+	err := cmd.Run()
+	return buf.String(), err
 }
 
 func runBackground(cmdStr, shell string) (any, error) {
@@ -105,6 +125,10 @@ func runBackground(cmdStr, shell string) (any, error) {
 
 	bgCtx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(bgCtx, shell, "-c", cmdStr)
+
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true, // new process group
+	}
 
 	cmd.Stdin = os.NewFile(0, os.DevNull)
 	cmd.Stdout = logFile

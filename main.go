@@ -1,12 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
-	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/eswar-7116/agent-gopher/internal/agent"
@@ -16,38 +16,54 @@ import (
 )
 
 func main() {
-	var userPrompt string
-	flag.StringVar(&userPrompt, "p", "", "Prompt to send to LLM")
-	flag.Parse()
-
-	if userPrompt == "" {
-		log.Fatal("Prompt must not be empty (use -p flag)")
-	}
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		<-sigs
+		cleanup()
+		os.Exit(1)
+	}()
 
 	cfg := config.Load()
 	client := llm.NewClient(cfg.OpenRouterAPIKey)
 	agentGopher := agent.NewAgent(&client)
 
-	ctx := context.Background()
-	if err := agentGopher.Run(ctx, userPrompt); err != nil {
-		log.Fatal(err)
+	scanner := bufio.NewScanner(os.Stdin)
+	for {
+		fmt.Print("\nUser: ")
+		os.Stdout.Sync()
+
+		if !scanner.Scan() {
+			break
+		}
+
+		input := strings.TrimSpace(scanner.Text())
+		if input == "" {
+			continue
+		}
+		if input == "/exit" || input == "/quit" {
+			break
+		}
+
+		ctx := context.Background()
+		if err := agentGopher.Run(ctx, input); err != nil {
+			fmt.Printf("Error: %v\n", err)
+		}
 	}
 
-	defer func() {
-		tools.BgProcessesMu.Lock()
-		if len(tools.BgProcesses) > 0 {
-			fmt.Println("\nWarning: background processes still running:")
-			for _, p := range tools.BgProcesses {
-				fmt.Printf("  PID %d - %s (logs: %s)\n", p.PID, p.Cmd, p.LogFile)
-			}
-		}
-		tools.BgProcessesMu.Unlock()
-	}()
+	cleanup()
+}
 
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
-	go func() {
-		<-sigs
-		os.Exit(1)
-	}()
+func cleanup() {
+	tools.BgProcessesMu.Lock()
+	defer tools.BgProcessesMu.Unlock()
+
+	if len(tools.BgProcesses) > 0 {
+		fmt.Println("\nWarning: background processes still running:")
+		for _, p := range tools.BgProcesses {
+			fmt.Printf("  PID %d - %s (logs: %s)\n", p.PID, p.Cmd, p.LogFile)
+		}
+	} else {
+		fmt.Println("\nNo background processes running.")
+	}
 }
