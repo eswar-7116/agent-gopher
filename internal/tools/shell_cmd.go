@@ -26,8 +26,9 @@ type BackgroundProcess struct {
 }
 
 var (
-	BgProcesses   = map[string]*BackgroundProcess{}
-	BgProcessesMu sync.Mutex
+	BgProcesses       = map[string]*BackgroundProcess{}
+	BgProcessesMu     sync.Mutex
+	UseStdinForPrompt = false // used for testing
 )
 
 // ShellCmdTool implements Tool for executing shell commands
@@ -68,11 +69,17 @@ func (ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, erro
 	}
 
 	// Ask user permission
-	tty, err := os.Open("/dev/tty")
-	if err != nil {
-		return nil, fmt.Errorf("failed to open tty: %v", err)
+	var reader io.Reader
+	if UseStdinForPrompt {
+		reader = os.Stdin
+	} else {
+		tty, err := os.Open("/dev/tty")
+		if err != nil {
+			return nil, fmt.Errorf("failed to open tty: %v", err)
+		}
+		defer tty.Close()
+		reader = tty
 	}
-	defer tty.Close()
 
 	kind := "command"
 	if background {
@@ -81,7 +88,7 @@ func (ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, erro
 	fmt.Printf("Agent wants to execute %s %q in your shell (y/N): ", kind, cmdStr)
 
 	var permission string
-	ttyScanner := bufio.NewScanner(tty)
+	ttyScanner := bufio.NewScanner(reader)
 	if ttyScanner.Scan() {
 		permission = strings.TrimSpace(ttyScanner.Text())
 	}

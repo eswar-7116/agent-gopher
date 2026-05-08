@@ -9,6 +9,10 @@ import (
 	"github.com/eswar-7116/agent-gopher/internal/tools"
 )
 
+func init() {
+	tools.UseStdinForPrompt = true
+}
+
 func simulateStdin(t *testing.T, input string) {
 	r, w, err := os.Pipe()
 	if err != nil {
