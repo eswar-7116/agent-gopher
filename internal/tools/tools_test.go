@@ -5,7 +5,7 @@ import (
 )
 
 func TestRegistry(t *testing.T) {
-	reg := Registry()
+	reg := Registry(false)
 
 	for name, tool := range reg {
 		if tool == nil {
@@ -23,13 +23,13 @@ func TestRegistry(t *testing.T) {
 }
 
 func TestDefinitions(t *testing.T) {
-	defs := Definitions()
+	defs := Definitions(false)
 
 	if len(defs) == 0 {
 		t.Errorf("expected Definitions to not be empty")
 	}
 
-	if len(defs) != len(Registry()) {
-		t.Errorf("expected Definitions length %d to match Registry length %d", len(defs), len(Registry()))
+	if len(defs) != len(Registry(false)) {
+		t.Errorf("expected Definitions length %d to match Registry length %d", len(defs), len(Registry(false)))
 	}
 }

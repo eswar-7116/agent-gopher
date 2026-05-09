@@ -25,8 +25,8 @@ func main() {
 	}()
 
 	cfg := config.Load()
-	client := llm.NewClient(cfg.OpenRouterAPIKey)
-	agentGopher := agent.NewAgent(&client)
+	client := llm.NewClient(cfg.OpenRouterAPIKey, cfg.BaseURL)
+	agentGopher := agent.NewAgent(&client, cfg.PermissiveShell)
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for {

@@ -32,7 +32,9 @@ var (
 )
 
 // ShellCmdTool implements Tool for executing shell commands
-type ShellCmdTool struct{}
+type ShellCmdTool struct {
+	Permissive bool
+}
 
 func (ShellCmdTool) Name() string {
 	return "shell_cmd"
@@ -56,7 +58,7 @@ func (s ShellCmdTool) Definition() openai.ChatCompletionToolUnionParam {
 	})
 }
 
-func (ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, error) {
+func (s ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	cmdStr, ok := args["cmd"].(string)
 	if !ok {
 		return nil, fmt.Errorf("missing or invalid 'cmd' argument")
@@ -66,6 +68,13 @@ func (ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, erro
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/sh"
+	}
+
+	if s.Permissive {
+		if background {
+			return runBackground(cmdStr, shell)
+		}
+		return runForeground(ctx, cmdStr, shell)
 	}
 
 	// Ask user permission

@@ -33,3 +33,6 @@ go.work.sum
 
 # Temporary test files
 /tmp*
+
+# Build output
+/agent-gopher

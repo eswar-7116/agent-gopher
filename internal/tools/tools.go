@@ -14,11 +14,11 @@ type Tool interface {
 }
 
 // Registry of all available tools
-func Registry() map[string]Tool {
+func Registry(permissiveShell bool) map[string]Tool {
 	tools := []Tool{
 		ReadFileTool{},
 		WriteFileTool{},
-		ShellCmdTool{},
+		ShellCmdTool{Permissive: permissiveShell},
 		ReadLogsTool{},
 		KillProcessTool{},
 	}
@@ -31,9 +31,9 @@ func Registry() map[string]Tool {
 }
 
 // Returns the OpenAI tool definitions for all registered tools
-func Definitions() []openai.ChatCompletionToolUnionParam {
+func Definitions(permissiveShell bool) []openai.ChatCompletionToolUnionParam {
 	defs := make([]openai.ChatCompletionToolUnionParam, 0)
-	for _, t := range Registry() {
+	for _, t := range Registry(permissiveShell) {
 		defs = append(defs, t.Definition())
 	}
 	return defs

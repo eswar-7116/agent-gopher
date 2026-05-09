@@ -44,10 +44,7 @@ func TestShellCmd_Name(t *testing.T) {
 }
 
 func TestShellCmd_Execute_Success(t *testing.T) {
-	tool := tools.ShellCmdTool{}
-
-	// Simulate user typing 'y' and pressing Enter
-	simulateStdin(t, "y\n")
+	tool := tools.ShellCmdTool{Permissive: true}
 
 	result, err := tool.Execute(t.Context(), map[string]any{
 		"cmd": "echo 'hello world'",
@@ -63,7 +60,7 @@ func TestShellCmd_Execute_Success(t *testing.T) {
 }
 
 func TestShellCmd_Execute_PermissionDenied(t *testing.T) {
-	tool := tools.ShellCmdTool{}
+	tool := tools.ShellCmdTool{Permissive: false}
 
 	// Simulate user typing 'n' to deny permission
 	simulateStdin(t, "n\n")
@@ -90,11 +87,27 @@ func TestShellCmd_Execute_InvalidArgs(t *testing.T) {
 	}
 }
 
-func TestShellCmd_Execute_CommandError(t *testing.T) {
-	tool := tools.ShellCmdTool{}
+func TestShellCmd_Execute_PermissionGranted(t *testing.T) {
+	tool := tools.ShellCmdTool{Permissive: false}
 
 	// Simulate user typing 'y' and pressing Enter
 	simulateStdin(t, "y\n")
+
+	result, err := tool.Execute(t.Context(), map[string]any{
+		"cmd": "echo 'hello world'",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, but got: %v", err)
+	}
+
+	out := strings.TrimSpace(result.(string))
+	if out != "hello world" {
+		t.Errorf("expected 'hello world', got %q", out)
+	}
+}
+
+func TestShellCmd_Execute_CommandError(t *testing.T) {
+	tool := tools.ShellCmdTool{Permissive: true}
 
 	_, err := tool.Execute(t.Context(), map[string]any{
 		"cmd": "false",
@@ -106,9 +119,7 @@ func TestShellCmd_Execute_CommandError(t *testing.T) {
 }
 
 func TestShellCmd_Execute_Background(t *testing.T) {
-	tool := tools.ShellCmdTool{}
-
-	simulateStdin(t, "y\n")
+	tool := tools.ShellCmdTool{Permissive: true}
 
 	res, err := tool.Execute(t.Context(), map[string]any{
 		"cmd":        "echo 'background process'",
