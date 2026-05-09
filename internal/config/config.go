@@ -1,45 +1,67 @@
 package config
 
 import (
+	"encoding/json"
 	"log"
 	"os"
-	"strings"
-
-	"github.com/joho/godotenv"
+	"path/filepath"
 )
 
 type Config struct {
-	OpenRouterAPIKey string
-	BaseURL          string
-	PermissiveShell  bool
+	OpenRouterAPIKey string `json:"api_key"`
+	BaseURL          string `json:"base_url"`
+	PermissiveShell  bool   `json:"permissive_shell"`
 }
 
 func Load() Config {
-	config := Config{}
-
-	// Load .env
-	err := godotenv.Load()
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		log.Fatal("error loading .env")
+		log.Fatalf("error getting home directory: %v", err)
 	}
 
-	// Set API key
-	apiKey := os.Getenv("API_KEY")
-	if apiKey == "" {
-		log.Fatal("API_KEY not set")
-	}
-	config.OpenRouterAPIKey = apiKey
+	configDir := filepath.Join(homeDir, ".agent-gopher")
+	configPath := filepath.Join(configDir, "config.json")
 
-	// Set base URL
-	baseURL := os.Getenv("BASE_URL")
-	if baseURL == "" {
-		log.Fatal("BASE_URL not set")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Create default config
+			err = os.MkdirAll(configDir, 0755)
+			if err != nil {
+				log.Fatalf("error creating config directory: %v", err)
+			}
+			defaultConfig := Config{
+				BaseURL:          "",
+				OpenRouterAPIKey: "",
+				PermissiveShell:  false,
+			}
+			data, err = json.MarshalIndent(defaultConfig, "", "  ")
+			if err != nil {
+				log.Fatalf("error marshaling default config: %v", err)
+			}
+			err = os.WriteFile(configPath, data, 0600)
+			if err != nil {
+				log.Fatalf("error writing default config: %v", err)
+			}
+			log.Fatalf("Config file not found. A default one has been created at %s. Please fill it out and run again.", configPath)
+		} else {
+			log.Fatalf("error reading config file: %v", err)
+		}
 	}
-	config.BaseURL = baseURL
 
-	// Set permissive shell
-	permissive := os.Getenv("PERMISSIVE_SHELL")
-	config.PermissiveShell = strings.ToLower(permissive) == "true" || permissive == "1"
+	var config Config
+	err = json.Unmarshal(data, &config)
+	if err != nil {
+		log.Fatalf("error parsing config file: %v", err)
+	}
+
+	// Validation
+	if config.OpenRouterAPIKey == "" {
+		log.Fatal("api_key not set in config.json")
+	}
+	if config.BaseURL == "" {
+		log.Fatal("base_url not set in config.json")
+	}
 
 	return config
 }

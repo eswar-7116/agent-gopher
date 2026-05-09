@@ -1,0 +1,5 @@
+{
+  "api_key": "<your_api_key>",
+  "base_url": "<your_base_url>",
+  "permissive_shell": false
+}
