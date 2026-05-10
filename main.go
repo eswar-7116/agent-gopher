@@ -26,7 +26,7 @@ func main() {
 
 	cfg := config.Load()
 	client := llm.NewClient(cfg.OpenRouterAPIKey, cfg.BaseURL)
-	agentGopher := agent.NewAgent(&client, cfg.PermissiveShell)
+	agentGopher := agent.NewAgent(&client, cfg.PermissiveShell, cfg.TavilyAPIKey)
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for {

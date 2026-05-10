@@ -14,13 +14,14 @@ type Tool interface {
 }
 
 // Registry of all available tools
-func Registry(permissiveShell bool) map[string]Tool {
+func Registry(permissiveShell bool, tavilyAPIKey string) map[string]Tool {
 	tools := []Tool{
 		ReadFileTool{},
 		WriteFileTool{},
 		ShellCmdTool{Permissive: permissiveShell},
 		ReadLogsTool{},
 		KillProcessTool{},
+		NewWebSearchTool(tavilyAPIKey),
 	}
 
 	registry := make(map[string]Tool, len(tools))
@@ -31,9 +32,9 @@ func Registry(permissiveShell bool) map[string]Tool {
 }
 
 // Returns the OpenAI tool definitions for all registered tools
-func Definitions(permissiveShell bool) []openai.ChatCompletionToolUnionParam {
+func Definitions(permissiveShell bool, tavilyAPIKey string) []openai.ChatCompletionToolUnionParam {
 	defs := make([]openai.ChatCompletionToolUnionParam, 0)
-	for _, t := range Registry(permissiveShell) {
+	for _, t := range Registry(permissiveShell, tavilyAPIKey) {
 		defs = append(defs, t.Definition())
 	}
 	return defs

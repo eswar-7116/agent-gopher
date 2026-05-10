@@ -15,13 +15,15 @@ type Agent struct {
 	messages        []openai.ChatCompletionMessageParamUnion
 	registry        map[string]tools.Tool
 	permissiveShell bool
+	tavilyAPIKey    string
 }
 
-func NewAgent(client *openai.Client, permissiveShell bool) *Agent {
+func NewAgent(client *openai.Client, permissiveShell bool, tavilyAPIKey string) *Agent {
 	return &Agent{
 		client:          client,
-		registry:        tools.Registry(permissiveShell),
+		registry:        tools.Registry(permissiveShell, tavilyAPIKey),
 		permissiveShell: permissiveShell,
+		tavilyAPIKey:    tavilyAPIKey,
 	}
 }
 
@@ -31,7 +33,7 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 	params := openai.ChatCompletionNewParams{
 		Model:    openai.ChatModel("openrouter/free"),
 		Messages: a.messages,
-		Tools:    tools.Definitions(a.permissiveShell),
+		Tools:    tools.Definitions(a.permissiveShell, a.tavilyAPIKey),
 	}
 
 	for {

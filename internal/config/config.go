@@ -11,6 +11,7 @@ type Config struct {
 	OpenRouterAPIKey string `json:"api_key"`
 	BaseURL          string `json:"base_url"`
 	PermissiveShell  bool   `json:"permissive_shell"`
+	TavilyAPIKey     string `json:"tavily_api_key"`
 }
 
 func Load() Config {
@@ -34,6 +35,7 @@ func Load() Config {
 				BaseURL:          "",
 				OpenRouterAPIKey: "",
 				PermissiveShell:  false,
+				TavilyAPIKey:     "",
 			}
 			data, err = json.MarshalIndent(defaultConfig, "", "  ")
 			if err != nil {
