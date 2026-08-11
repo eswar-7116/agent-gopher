@@ -60,6 +60,9 @@ func (ReadLogsTool) Execute(_ context.Context, args map[string]any) (any, error)
 			lines = append(lines, line)
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading log file: %w", err)
+	}
 
 	if tail > 0 && int(tail) < len(lines) {
 		lines = lines[len(lines)-int(tail):]

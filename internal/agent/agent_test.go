@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"errors"
+	"io"
+	"log"
 	"testing"
 
 	"github.com/eswar-7116/agent-gopher/internal/tools"
@@ -67,6 +69,7 @@ func TestSerialize(t *testing.T) {
 
 func TestExecuteToolCall(t *testing.T) {
 	agent := &Agent{
+		logger: log.New(io.Discard, "", 0),
 		registry: map[string]tools.Tool{
 			"mock_tool": mockTool{
 				name: "mock_tool",
@@ -136,7 +139,7 @@ func TestExecuteToolCall(t *testing.T) {
 
 func TestNewAgent(t *testing.T) {
 	client := openai.NewClient(option.WithAPIKey("dummy-key"))
-	agent := NewAgent(&client, false, "test-key")
+	agent := NewAgent(&client, "test-model", false, "test-key", nil, log.New(io.Discard, "", 0))
 
 	if agent == nil {
 		t.Fatal("expected agent to not be nil")

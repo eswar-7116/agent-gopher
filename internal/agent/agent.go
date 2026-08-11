@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/eswar-7116/agent-gopher/internal/mcpclient"
 	"github.com/eswar-7116/agent-gopher/internal/tools"
 	"github.com/openai/openai-go/v3"
 )
@@ -14,16 +15,34 @@ type Agent struct {
 	client          *openai.Client
 	messages        []openai.ChatCompletionMessageParamUnion
 	registry        map[string]tools.Tool
+	toolDefs        []openai.ChatCompletionToolUnionParam
+	model           string
 	permissiveShell bool
 	tavilyAPIKey    string
+	logger          *log.Logger
 }
 
-func NewAgent(client *openai.Client, permissiveShell bool, tavilyAPIKey string) *Agent {
+func NewAgent(client *openai.Client, model string, permissiveShell bool, tavilyAPIKey string, mcpServers []*mcpclient.MCPServer, logger *log.Logger) *Agent {
+	registry := tools.Registry(permissiveShell, tavilyAPIKey)
+	defs := tools.Definitions(permissiveShell, tavilyAPIKey)
+
+	// Register MCP tools
+	for _, server := range mcpServers {
+		for _, mcpTool := range server.Tools {
+			t := tools.NewMCPTool(server, mcpTool)
+			registry[t.Name()] = t
+			defs = append(defs, t.Definition())
+		}
+	}
+
 	return &Agent{
 		client:          client,
-		registry:        tools.Registry(permissiveShell, tavilyAPIKey),
+		registry:        registry,
+		toolDefs:        defs,
+		model:           model,
 		permissiveShell: permissiveShell,
 		tavilyAPIKey:    tavilyAPIKey,
+		logger:          logger,
 	}
 }
 
@@ -31,13 +50,13 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 	a.messages = append(a.messages, openai.UserMessage(userPrompt))
 
 	params := openai.ChatCompletionNewParams{
-		Model:    openai.ChatModel("openrouter/free"),
+		Model:    openai.ChatModel(a.model),
 		Messages: a.messages,
-		Tools:    tools.Definitions(a.permissiveShell, a.tavilyAPIKey),
+		Tools:    a.toolDefs,
 	}
 
 	for {
-		log.Println("Sending messages to LLM...")
+		a.logger.Println("Sending messages to LLM...")
 		params.Messages = a.messages
 		resp, err := a.client.Chat.Completions.New(ctx, params)
 		if err != nil {
@@ -54,7 +73,7 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 
 		for _, toolCall := range msg.ToolCalls {
 			name := toolCall.Function.Name
-			log.Printf("Executing tool: %s\n", name)
+			a.logger.Printf("Executing tool: %s\n", name)
 
 			toolResult := a.executeToolCall(ctx, name, toolCall.Function.Arguments)
 			a.messages = append(a.messages, openai.ToolMessage(toolResult, toolCall.ID))
@@ -77,7 +96,7 @@ func (a *Agent) executeToolCall(ctx context.Context, name, arguments string) str
 
 	result, err := tool.Execute(ctx, args)
 	if err != nil {
-		log.Printf("Tool %s returned an error: %v\n", name, err)
+		a.logger.Printf("Tool %s returned an error: %v\n", name, err)
 		return fmt.Sprintf("Error: %v", err)
 	}
 

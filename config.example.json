@@ -1,5 +1,14 @@
 {
   "api_key": "<your_api_key>",
   "base_url": "<your_base_url>",
-  "permissive_shell": false
+  "model": "openrouter/free",
+  "permissive_shell": false,
+  "tavily_api_key": "",
+  "mcp_servers": [
+    {
+      "name": "example",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-everything"]
+    }
+  ]
 }

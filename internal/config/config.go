@@ -7,11 +7,19 @@ import (
 	"path/filepath"
 )
 
+type MCPServerConfig struct {
+	Name    string   `json:"name"`
+	Command string   `json:"command"`
+	Args    []string `json:"args"`
+}
+
 type Config struct {
-	OpenRouterAPIKey string `json:"api_key"`
-	BaseURL          string `json:"base_url"`
-	PermissiveShell  bool   `json:"permissive_shell"`
-	TavilyAPIKey     string `json:"tavily_api_key"`
+	OpenRouterAPIKey string            `json:"api_key"`
+	BaseURL          string            `json:"base_url"`
+	Model            string            `json:"model"`
+	PermissiveShell  bool              `json:"permissive_shell"`
+	TavilyAPIKey     string            `json:"tavily_api_key"`
+	MCPServers       []MCPServerConfig `json:"mcp_servers"`
 }
 
 func Load() Config {
@@ -34,6 +42,7 @@ func Load() Config {
 			defaultConfig := Config{
 				BaseURL:          "",
 				OpenRouterAPIKey: "",
+				Model:            "openrouter/free",
 				PermissiveShell:  false,
 				TavilyAPIKey:     "",
 			}
@@ -63,6 +72,9 @@ func Load() Config {
 	}
 	if config.BaseURL == "" {
 		log.Fatal("base_url not set in config.json")
+	}
+	if config.Model == "" {
+		config.Model = "openrouter/free"
 	}
 
 	return config

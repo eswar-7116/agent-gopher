@@ -23,8 +23,7 @@ func BenchmarkReadFile_Small(b *testing.B) {
 
 	args := map[string]any{"path": f.Name()}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = tool.Execute(ctx, args)
 	}
 }
@@ -41,8 +40,7 @@ func BenchmarkWriteFile_Small(b *testing.B) {
 		"content": "hello world",
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = tool.Execute(ctx, args)
 	}
 }
@@ -52,8 +50,7 @@ func BenchmarkShellCmd_Echo(b *testing.B) {
 	ctx := context.Background()
 	args := map[string]any{"cmd": "echo hello"}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = tool.Execute(ctx, args)
 	}
 }
