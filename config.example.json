@@ -3,6 +3,7 @@
   "base_url": "<your_base_url>",
   "model": "openrouter/free",
   "permissive_shell": false,
+  "whitelisted_cmds": [],
   "tavily_api_key": "",
   "mcp_servers": [
     {

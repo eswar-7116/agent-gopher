@@ -18,6 +18,7 @@ type Config struct {
 	BaseURL          string            `json:"base_url"`
 	Model            string            `json:"model"`
 	PermissiveShell  bool              `json:"permissive_shell"`
+	WhitelistedCmds  []string          `json:"whitelisted_cmds"`
 	TavilyAPIKey     string            `json:"tavily_api_key"`
 	MCPServers       []MCPServerConfig `json:"mcp_servers"`
 }
@@ -44,6 +45,7 @@ func Load() Config {
 				OpenRouterAPIKey: "",
 				Model:            "openrouter/free",
 				PermissiveShell:  false,
+				WhitelistedCmds:  []string{},
 				TavilyAPIKey:     "",
 			}
 			data, err = json.MarshalIndent(defaultConfig, "", "  ")
@@ -76,6 +78,26 @@ func Load() Config {
 	if config.Model == "" {
 		config.Model = "openrouter/free"
 	}
+	if config.WhitelistedCmds == nil {
+		config.WhitelistedCmds = []string{}
+	}
 
 	return config
+}
+
+func Save(cfg Config) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	configDir := filepath.Join(homeDir, ".agent-gopher")
+	configPath := filepath.Join(configDir, "config.json")
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(configPath, data, 0644)
 }

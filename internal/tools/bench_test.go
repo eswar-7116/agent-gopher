@@ -8,7 +8,7 @@ import (
 
 func BenchmarkRegistryInitialization(b *testing.B) {
 	for b.Loop() {
-		_ = Registry(true, "test-key")
+		_ = Registry(false, "", nil, nil)
 	}
 }
 

@@ -139,7 +139,11 @@ func TestExecuteToolCall(t *testing.T) {
 
 func TestNewAgent(t *testing.T) {
 	client := openai.NewClient(option.WithAPIKey("dummy-key"))
-	agent := NewAgent(&client, "test-model", false, "test-key", nil, log.New(io.Discard, "", 0))
+	agent := NewAgent(AgentOptions{
+		Client: &client,
+		Model:  "test-model",
+		Logger: log.New(io.Discard, "", 0),
+	})
 
 	if agent == nil {
 		t.Fatal("expected agent to not be nil")

@@ -31,9 +31,28 @@ var (
 	UseStdinForPrompt = false // used for testing
 )
 
+var subcommandTools = map[string]bool{
+	"git":       true,
+	"docker":    true,
+	"kubectl":   true,
+	"go":        true,
+	"npm":       true,
+	"bun":       true,
+	"cargo":     true,
+	"yarn":      true,
+	"pnpm":      true,
+	"gh":        true,
+	"terraform": true,
+	"aws":       true,
+	"pip":       true,
+	"systemctl": true,
+}
+
 // ShellCmdTool implements Tool for executing shell commands
 type ShellCmdTool struct {
-	Permissive bool
+	Permissive      bool
+	WhitelistedCmds map[string]bool
+	OnWhitelist     func(cmd string)
 }
 
 func (ShellCmdTool) Name() string {
@@ -58,6 +77,45 @@ func (s ShellCmdTool) Definition() openai.ChatCompletionToolUnionParam {
 	})
 }
 
+func extractPrefix(cmdStr string) string {
+	fields := strings.Fields(cmdStr)
+	if len(fields) == 0 {
+		return ""
+	}
+
+	if subcommandTools[fields[0]] && len(fields) >= 2 {
+		for i := 1; i < len(fields); i++ {
+			if !strings.HasPrefix(fields[i], "-") {
+				return fields[0] + " " + fields[i]
+			}
+		}
+	}
+
+	return fields[0]
+}
+
+func isWhitelisted(cmdStr string, whitelistedCmds map[string]bool) bool {
+	if len(whitelistedCmds) == 0 {
+		return false
+	}
+
+	fields := strings.Fields(cmdStr)
+	if len(fields) == 0 {
+		return false
+	}
+
+	if whitelistedCmds[fields[0]] {
+		return true
+	}
+
+	prefix := extractPrefix(cmdStr)
+	if prefix != fields[0] && whitelistedCmds[prefix] {
+		return true
+	}
+
+	return false
+}
+
 func (s ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	cmdStr, ok := args["cmd"].(string)
 	if !ok {
@@ -70,7 +128,7 @@ func (s ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, er
 		shell = "/bin/sh"
 	}
 
-	if s.Permissive {
+	if s.Permissive || isWhitelisted(cmdStr, s.WhitelistedCmds) {
 		if background {
 			return runBackground(cmdStr, shell)
 		}
@@ -94,19 +152,34 @@ func (s ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, er
 	if background {
 		kind = "background command"
 	}
-	fmt.Printf("Agent wants to execute %s %q in your shell (y/N): ", kind, cmdStr)
+	fmt.Printf("Agent wants to execute %s %q in your shell. [y]es / [N]o / [a]lways allow: ", kind, cmdStr)
 
 	var permission string
 	ttyScanner := bufio.NewScanner(reader)
 	if ttyScanner.Scan() {
-		permission = strings.TrimSpace(ttyScanner.Text())
+		permission = strings.TrimSpace(strings.ToLower(ttyScanner.Text()))
 	}
 
-	if len(permission) == 0 {
-		return nil, fmt.Errorf("permission denied (defaulted to No)")
+	if permission == "a" || permission == "always" {
+		if s.OnWhitelist != nil {
+			s.OnWhitelist(extractPrefix(cmdStr))
+		}
+		if background {
+			return runBackground(cmdStr, shell)
+		}
+		return runForeground(ctx, cmdStr, shell)
 	}
-	if strings.ToLower(permission) != "y" {
-		return nil, fmt.Errorf("user denied the permission")
+
+	if permission != "y" && permission != "yes" {
+		fmt.Print("Command denied. What should the agent do instead? (Press Enter to skip): ")
+		var altInstruction string
+		if ttyScanner.Scan() {
+			altInstruction = strings.TrimSpace(ttyScanner.Text())
+		}
+		if altInstruction != "" {
+			return nil, fmt.Errorf("user denied permission for command(%s). The following instruction was provided by the user as an alternative: %s", cmdStr, altInstruction)
+		}
+		return nil, fmt.Errorf("user denied permission for command(%s)", cmdStr)
 	}
 
 	if background {

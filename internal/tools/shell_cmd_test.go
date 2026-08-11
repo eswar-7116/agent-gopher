@@ -1,6 +1,7 @@
 package tools_test
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -62,8 +63,7 @@ func TestShellCmd_Execute_Success(t *testing.T) {
 func TestShellCmd_Execute_PermissionDenied(t *testing.T) {
 	tool := tools.ShellCmdTool{Permissive: false}
 
-	// Simulate user typing 'n' to deny permission
-	simulateStdin(t, "n\n")
+	simulateStdin(t, "n\n\n")
 
 	_, err := tool.Execute(t.Context(), map[string]any{
 		"cmd": "echo 'should not run'",
@@ -73,8 +73,130 @@ func TestShellCmd_Execute_PermissionDenied(t *testing.T) {
 		t.Fatal("expected an error due to permission denied, but got nil")
 	}
 
-	if !strings.Contains(err.Error(), "user denied the permission") {
+	if !strings.Contains(err.Error(), "user denied permission for command(echo 'should not run')") {
 		t.Errorf("expected permission denied error message, got: %v", err)
+	}
+}
+
+func TestShellCmd_Execute_PermissionDeniedWithAlt(t *testing.T) {
+	tool := tools.ShellCmdTool{Permissive: false}
+
+	// Simulate user typing 'n' and providing an alternative instruction
+	simulateStdin(t, "n\nplease do something else instead\n")
+
+	_, err := tool.Execute(context.Background(), map[string]any{
+		"cmd": "echo 'bad command'",
+	})
+
+	if err == nil {
+		t.Fatal("expected an error due to permission denied, but got nil")
+	}
+
+	if !strings.Contains(err.Error(), "The following instruction was provided by the user as an alternative: please do something else instead") {
+		t.Errorf("expected alternative instruction in error message, got: %v", err)
+	}
+}
+
+func TestShellCmd_WhitelistBypass(t *testing.T) {
+	tool := tools.ShellCmdTool{
+		Permissive: false,
+		WhitelistedCmds: map[string]bool{
+			"echo": true,
+		},
+	}
+
+	result, err := tool.Execute(context.Background(), map[string]any{
+		"cmd": "echo 'hello world'",
+	})
+	if err != nil {
+		t.Fatalf("expected no error (should bypass prompt), got: %v", err)
+	}
+
+	out := strings.TrimSpace(result.(string))
+	if out != "hello world" {
+		t.Errorf("expected 'hello world', got %q", out)
+	}
+}
+
+func TestShellCmd_AlwaysAllow(t *testing.T) {
+	var savedCmd string
+	tool := tools.ShellCmdTool{
+		Permissive:      false,
+		WhitelistedCmds: map[string]bool{},
+		OnWhitelist: func(cmd string) {
+			savedCmd = cmd
+		},
+	}
+
+	// Simulate user typing 'a' to always allow
+	simulateStdin(t, "a\n")
+
+	result, err := tool.Execute(context.Background(), map[string]any{
+		"cmd": "echo 'allowed command'",
+	})
+
+	if err != nil {
+		t.Fatalf("expected no error, but got: %v", err)
+	}
+
+	out := strings.TrimSpace(result.(string))
+	if out != "allowed command" {
+		t.Errorf("expected 'allowed command', got %q", out)
+	}
+
+	if savedCmd != "echo" {
+		t.Errorf("expected OnWhitelist to receive 'echo', got %q", savedCmd)
+	}
+}
+
+func TestShellCmd_Subcommand_AlwaysAllow(t *testing.T) {
+	var savedCmd string
+	tool := tools.ShellCmdTool{
+		Permissive:      false,
+		WhitelistedCmds: map[string]bool{},
+		OnWhitelist: func(cmd string) {
+			savedCmd = cmd
+		},
+	}
+
+	// Simulate user typing 'a' to always allow
+	simulateStdin(t, "a\n")
+
+	_, err := tool.Execute(context.Background(), map[string]any{
+		"cmd": "git status -s",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, but got: %v", err)
+	}
+
+	if savedCmd != "git status" {
+		t.Errorf("expected OnWhitelist to receive 'git status', got %q", savedCmd)
+	}
+}
+
+func TestShellCmd_Subcommand_WhitelistBypass(t *testing.T) {
+	tool := tools.ShellCmdTool{
+		Permissive: false,
+		WhitelistedCmds: map[string]bool{
+			"git status": true,
+		},
+	}
+
+	// Should bypass prompt for git status with args
+	_, err := tool.Execute(context.Background(), map[string]any{
+		"cmd": "git status -s",
+	})
+	if err != nil {
+		t.Fatalf("expected no error for whitelisted 'git status', got: %v", err)
+	}
+
+	// Should NOT bypass prompt for git log
+	simulateStdin(t, "n\n\n")
+	_, err = tool.Execute(context.Background(), map[string]any{
+		"cmd": "git log",
+	})
+	if err == nil {
+		t.Fatal("expected error because 'git log' is not whitelisted, but got nil")
 	}
 }
 

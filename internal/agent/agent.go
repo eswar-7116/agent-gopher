@@ -22,12 +22,23 @@ type Agent struct {
 	logger          *log.Logger
 }
 
-func NewAgent(client *openai.Client, model string, permissiveShell bool, tavilyAPIKey string, mcpServers []*mcpclient.MCPServer, logger *log.Logger) *Agent {
-	registry := tools.Registry(permissiveShell, tavilyAPIKey)
-	defs := tools.Definitions(permissiveShell, tavilyAPIKey)
+type AgentOptions struct {
+	Client          *openai.Client
+	Model           string
+	PermissiveShell bool
+	TavilyAPIKey    string
+	MCPServers      []*mcpclient.MCPServer
+	Logger          *log.Logger
+	WhitelistedCmds []string
+	OnWhitelist     func(string)
+}
+
+func NewAgent(opts AgentOptions) *Agent {
+	registry := tools.Registry(opts.PermissiveShell, opts.TavilyAPIKey, opts.WhitelistedCmds, opts.OnWhitelist)
+	defs := tools.Definitions(opts.PermissiveShell, opts.TavilyAPIKey, opts.WhitelistedCmds, opts.OnWhitelist)
 
 	// Register MCP tools
-	for _, server := range mcpServers {
+	for _, server := range opts.MCPServers {
 		for _, mcpTool := range server.Tools {
 			t := tools.NewMCPTool(server, mcpTool)
 			registry[t.Name()] = t
@@ -36,13 +47,13 @@ func NewAgent(client *openai.Client, model string, permissiveShell bool, tavilyA
 	}
 
 	return &Agent{
-		client:          client,
+		client:          opts.Client,
 		registry:        registry,
 		toolDefs:        defs,
-		model:           model,
-		permissiveShell: permissiveShell,
-		tavilyAPIKey:    tavilyAPIKey,
-		logger:          logger,
+		model:           opts.Model,
+		permissiveShell: opts.PermissiveShell,
+		tavilyAPIKey:    opts.TavilyAPIKey,
+		logger:          opts.Logger,
 	}
 }
 

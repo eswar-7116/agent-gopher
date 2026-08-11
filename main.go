@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -19,13 +20,7 @@ import (
 )
 
 func main() {
-	debug := false
-	for _, arg := range os.Args[1:] {
-		if arg == "--debug" {
-			debug = true
-			break
-		}
-	}
+	debug := slices.Contains(os.Args[1:], "--debug")
 
 	var debugLogger *log.Logger
 	if debug {
@@ -58,7 +53,23 @@ func main() {
 		mcpServers = append(mcpServers, server)
 	}
 
-	agentGopher := agent.NewAgent(&client, cfg.Model, cfg.PermissiveShell, cfg.TavilyAPIKey, mcpServers, debugLogger)
+	onWhitelist := func(cmd string) {
+		cfg.WhitelistedCmds = append(cfg.WhitelistedCmds, cmd)
+		if err := config.Save(cfg); err != nil {
+			log.Printf("Warning: failed to save whitelisted command to config: %v\n", err)
+		}
+	}
+
+	agentGopher := agent.NewAgent(agent.AgentOptions{
+		Client:          &client,
+		Model:           cfg.Model,
+		PermissiveShell: cfg.PermissiveShell,
+		TavilyAPIKey:    cfg.TavilyAPIKey,
+		MCPServers:      mcpServers,
+		Logger:          debugLogger,
+		WhitelistedCmds: cfg.WhitelistedCmds,
+		OnWhitelist:     onWhitelist,
+	})
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
