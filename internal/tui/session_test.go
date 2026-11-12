@@ -3,6 +3,7 @@ package tui
 import (
 	"io"
 	"log"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -92,7 +93,7 @@ func TestSnapshotCopiesSoLaterAppendsDoNotLeak(t *testing.T) {
 func TestSaveSessionWritesUnderProjectDir(t *testing.T) {
 	home := isolateHome(t)
 	m := testModel(t)
-	m.entries = []entry{{roleUser, "hello"}}
+	m.entries = []entry{{roleUser, "hello"}, {roleAssistant, "hi back"}}
 	m.history = []string{"hello"}
 
 	path, err := m.saveSession()
@@ -108,23 +109,80 @@ func TestSaveSessionWritesUnderProjectDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(got.Entries) != 1 || got.Entries[0].Content != "hello" {
+	if len(got.Entries) != 2 || got.Entries[0].Content != "hello" {
 		t.Fatalf("saved entries = %+v", got.Entries)
 	}
 }
 
-func TestSaveSessionSkipsAnEmptyConversation(t *testing.T) {
+func TestSaveSessionSkipsSessionsTheAgentNeverRepliedIn(t *testing.T) {
+	cases := []struct {
+		name    string
+		entries []entry
+		history []string
+	}{
+		{
+			name:    "only the opening banner",
+			entries: []entry{{roleInfo, "welcome"}},
+		},
+		{
+			name: "only slash commands",
+			entries: []entry{
+				{roleInfo, "welcome"},
+				{roleInfo, "Switched to plan mode."},
+				{roleInfo, "No memories yet."},
+			},
+			history: []string{"/plan", "/gopher memory"},
+		},
+		{
+			name: "asked, but the reply failed",
+			entries: []entry{
+				{roleInfo, "welcome"},
+				{roleUser, "hello"},
+				{roleError, "chat completion failed"},
+			},
+			history: []string{"hello"},
+		},
+		{
+			name: "tool ran but the agent never spoke",
+			entries: []entry{
+				{roleUser, "read the file"},
+				{roleTool, "read_file {}"},
+				{roleError, "chat completion failed"},
+			},
+			history: []string{"read the file"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := isolateHome(t)
+			m := testModel(t)
+			m.entries, m.history = tc.entries, tc.history
+
+			path, err := m.saveSession()
+			if err != nil {
+				t.Fatalf("saveSession: %v", err)
+			}
+			if path != "" {
+				t.Fatalf("wrote %q, want no file", path)
+			}
+			if _, err := os.Stat(filepath.Join(home, session.RootDirName)); !os.IsNotExist(err) {
+				t.Fatalf("session root was created anyway: %v", err)
+			}
+		})
+	}
+}
+
+func TestSaveSessionWritesOnceTheAgentHasReplied(t *testing.T) {
 	isolateHome(t)
 	m := testModel(t)
-	// Only the opening banner, as on a session the user never typed into.
-	m.entries = []entry{{roleInfo, "welcome"}}
+	m.entries = []entry{{roleInfo, "welcome"}, {roleUser, "hello"}, {roleAssistant, "hi"}}
 
 	path, err := m.saveSession()
 	if err != nil {
 		t.Fatalf("saveSession: %v", err)
 	}
-	if path != "" {
-		t.Fatalf("wrote %q for an empty conversation, want no file", path)
+	if path == "" {
+		t.Fatal("nothing written for a conversation with an assistant reply")
 	}
 }
 
@@ -132,7 +190,7 @@ func TestSaveSessionSkipsWhenNoIDCouldBeGenerated(t *testing.T) {
 	isolateHome(t)
 	m := testModel(t)
 	m.sessionID = ""
-	m.entries = []entry{{roleUser, "hello"}}
+	m.entries = []entry{{roleUser, "hello"}, {roleAssistant, "hi"}}
 
 	path, err := m.saveSession()
 	if err != nil || path != "" {
@@ -151,7 +209,7 @@ func TestSaveActiveSessionWithNoRunningTUI(t *testing.T) {
 func TestSaveActiveSessionSavesTheRegisteredModel(t *testing.T) {
 	isolateHome(t)
 	m := testModel(t)
-	m.entries = []entry{{roleUser, "hello"}}
+	m.entries = []entry{{roleUser, "hello"}, {roleAssistant, "hi"}}
 	setActive(m)
 	t.Cleanup(func() { setActive(nil) })
 

@@ -79,13 +79,10 @@ func (m *Model) saveSession() (string, error) {
 	return session.Save(s)
 }
 
-// Reports whether a state holds anything but the opening banner
+// Reports whether the agent has replied at least once
 func worthSaving(s *session.State) bool {
-	if len(s.InputHistory) > 0 || len(s.Messages) > 0 {
-		return true
-	}
 	for _, e := range s.Entries {
-		if e.Role != "info" {
+		if e.Role == roleNames[roleAssistant] {
 			return true
 		}
 	}
