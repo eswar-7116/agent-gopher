@@ -43,6 +43,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		return m.submit()
+	case "alt+enter":
+		return m.sendNow()
 	case "up", "down":
 		m.navigateHistory(key)
 		return m, nil
@@ -123,11 +125,48 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Quit
 	}
-	if text == "" || m.running {
+	if text == "" || m.running && strings.HasPrefix(text, "/") {
 		return m, nil
 	}
 	m.input.Reset()
 	m.layout()
+	m.recordInput(text)
+	if m.running {
+		m.queue = append(m.queue, text)
+		// Rejected only when the run is ending; doneMsg sends it then
+		m.agent.Inject(text)
+		m.layout()
+		return m, nil
+	}
+	if strings.HasPrefix(text, "/") && m.runSlash(text) {
+		return m, nil
+	}
+	m.add(roleUser, text)
+	return m, m.start(text)
+}
+
+// Handles Alt+Enter: interrupts the running agent and sends the queue and input.
+func (m *Model) sendNow() (tea.Model, tea.Cmd) {
+	text := strings.TrimSpace(m.input.Value())
+	if !m.running || strings.HasPrefix(text, "/") {
+		return m.submit()
+	}
+	if text != "" {
+		m.input.Reset()
+		m.recordInput(text)
+		m.queue = append(m.queue, text)
+	}
+	if len(m.queue) == 0 {
+		return m, nil
+	}
+	m.urgent = true
+	m.cancel()
+	m.layout()
+	return m, nil
+}
+
+// Saves submitted text to input history and the session log
+func (m *Model) recordInput(text string) {
 	m.stateMu.Lock()
 	m.history = append(m.history, text)
 	m.histIdx = len(m.history)
@@ -135,11 +174,6 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 	if m.log != nil {
 		m.log.AppendInput(text)
 	}
-	if strings.HasPrefix(text, "/") && m.runSlash(text) {
-		return m, nil
-	}
-	m.add(roleUser, text)
-	return m, m.start(text)
 }
 
 // Moves through previously submitted inputs.

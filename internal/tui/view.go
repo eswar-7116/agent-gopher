@@ -45,7 +45,7 @@ func (m *Model) layout() {
 	if m.perm != nil {
 		footer += 4
 	}
-	footer += len(m.suggestions())
+	footer += len(m.suggestions()) + len(m.queue)
 	m.viewport.SetWidth(m.width)
 	m.viewport.SetHeight(max(m.height-footer-1, 3))
 	m.refresh()
@@ -121,6 +121,7 @@ func (m *Model) View() tea.View {
 		b.WriteString(m.permPrompt())
 		b.WriteString("\n")
 	}
+	b.WriteString(m.queueList())
 	b.WriteString(m.suggestionList())
 	b.WriteString(inputBox.Width(max(m.width-2, 10)).Render(m.input.View()))
 	b.WriteString("\n")
@@ -141,8 +142,11 @@ func (m *Model) statusLine() string {
 	if m.agent.Mode() == agent.ModePlan {
 		modeTag = "[PLAN] "
 	}
+	if m.urgent {
+		return modeTag + "Interrupting…"
+	}
 	if m.running {
-		return modeTag + "Esc cancel · Ctrl+C quit"
+		return modeTag + "Enter queue · Alt+Enter interrupt & send · Esc cancel · Ctrl+C quit"
 	}
 	return modeTag + "/ commands · Enter send · ↑/↓ history · PgUp/PgDn scroll · Ctrl+C quit"
 }
@@ -155,6 +159,16 @@ func (m *Model) permPrompt() string {
 	}
 	return promptStyle.Width(max(m.width-2, 10)).Render(
 		toolStyle.Render("Run "+kind+"?") + "\n" + truncate(m.perm.cmd, 400))
+}
+
+// Renders messages waiting for the current run to finish
+func (m *Model) queueList() string {
+	var b strings.Builder
+	for _, t := range m.queue {
+		b.WriteString(dimStyle.Render("⏳ " + truncate(t, max(m.width-6, 10))))
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 // Renders the slash-command suggestions

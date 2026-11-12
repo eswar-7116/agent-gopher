@@ -32,6 +32,11 @@ type Agent struct {
 
 	onToolCall func(name, arguments string)
 	onText     func(text string)
+	onInjected func(texts []string)
+
+	injectMu sync.Mutex
+	running  bool     // Run is active and accepting injected messages
+	injected []string // user messages waiting for the next step
 
 	systemPrompt string
 	maxSteps     int // max LLM round-trips per Run; 0 means unlimited
@@ -148,7 +153,53 @@ func (a *Agent) currentMemory() string {
 	return global + "\n\n" + project
 }
 
+// Sets a callback fired when injected messages enter the conversation
+func (a *Agent) SetInjectedCallback(fn func(texts []string)) {
+	a.onInjected = fn
+}
+
+// Queues a user message for the running Run; false if no run is active
+func (a *Agent) Inject(text string) bool {
+	a.injectMu.Lock()
+	defer a.injectMu.Unlock()
+	if !a.running {
+		return false
+	}
+	a.injected = append(a.injected, text)
+	return true
+}
+
+// Appends injected messages; stop also closes injection when none are pending
+func (a *Agent) takeInjected(stop bool) bool {
+	a.injectMu.Lock()
+	texts := a.injected
+	a.injected = nil
+	if stop && len(texts) == 0 {
+		a.running = false
+	}
+	a.injectMu.Unlock()
+	if len(texts) == 0 {
+		return false
+	}
+	for _, t := range texts {
+		a.appendMessages(openai.UserMessage(t))
+	}
+	if a.onInjected != nil {
+		a.onInjected(texts)
+	}
+	return true
+}
+
 func (a *Agent) Run(ctx context.Context, userPrompt string) error {
+	a.injectMu.Lock()
+	a.running, a.injected = true, nil
+	a.injectMu.Unlock()
+	defer func() {
+		a.injectMu.Lock()
+		a.running, a.injected = false, nil
+		a.injectMu.Unlock()
+	}()
+
 	if a.globalMemoryDir != "" || a.projectMemoryDir != "" {
 		cur := a.currentMemory()
 		if a.messageCount() > 0 && cur != a.memorySeen {
@@ -193,11 +244,19 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 		params.Messages = a.GetMessages()
 		msg, err := a.complete(ctx, params)
 		if err != nil {
+			// Keep the partial reply so the model knows where it was interrupted
+			if ctx.Err() != nil && msg.Content != "" {
+				a.appendMessages(openai.AssistantMessage(msg.Content))
+			}
 			return err
 		}
 		a.appendMessages(msg.ToParam())
 
 		if len(msg.ToolCalls) == 0 {
+			// Keep going if messages were injected while answering
+			if a.takeInjected(true) {
+				continue
+			}
 			break
 		}
 
@@ -213,6 +272,9 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 
 			toolResult := a.executeToolCall(ctx, name, arguments)
 			a.appendMessages(openai.ToolMessage(toolResult, toolCall.ID))
+		}
+		if ctx.Err() == nil {
+			a.takeInjected(false)
 		}
 	}
 
@@ -233,7 +295,11 @@ func (a *Agent) complete(ctx context.Context, params openai.ChatCompletionNewPar
 		}
 	}
 	if err := stream.Err(); err != nil {
-		return openai.ChatCompletionMessage{}, fmt.Errorf("chat completion failed: %w", err)
+		var partial openai.ChatCompletionMessage
+		if len(acc.Choices) > 0 {
+			partial.Content = acc.Choices[0].Message.Content
+		}
+		return partial, fmt.Errorf("chat completion failed: %w", err)
 	}
 	if len(acc.Choices) == 0 {
 		return openai.ChatCompletionMessage{}, fmt.Errorf("chat completion failed: empty response")

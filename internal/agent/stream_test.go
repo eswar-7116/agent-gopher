@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -64,5 +65,27 @@ func TestTextIsStreamed(t *testing.T) {
 	}
 	if got := ag.GetLastAssistantMessage(); got != "hello" {
 		t.Errorf("final message = %q", got)
+	}
+}
+
+func TestCancelKeepsPartialReply(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, `data: {"id":"x","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"half"}}]}`+"\n\n")
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	client := openai.NewClient(option.WithAPIKey("k"), option.WithBaseURL(srv.URL), option.WithMaxRetries(0))
+	ag := NewAgent(AgentOptions{Client: &client, Model: "m", Logger: log.New(io.Discard, "", 0)})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	ag.SetTextCallback(func(string) { cancel() })
+	if err := ag.Run(ctx, "hi"); err == nil {
+		t.Fatal("want cancellation error")
+	}
+	if got := ag.GetLastAssistantMessage(); got != "half" {
+		t.Errorf("last assistant = %q, want partial reply", got)
 	}
 }

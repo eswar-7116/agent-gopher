@@ -40,6 +40,8 @@ type Model struct {
 
 	running bool
 	cancel  context.CancelFunc
+	queue   []string // messages sent while running
+	urgent  bool     // run cancelled by Alt+Enter
 
 	// permission request
 	perm      *permReqMsg
@@ -86,6 +88,7 @@ func Run(ag *agent.Agent) error {
 
 	ag.SetToolCallCallback(func(name, args string) { p.Send(toolCallMsg{name, args}) })
 	ag.SetTextCallback(func(t string) { p.Send(textMsg(t)) })
+	ag.SetInjectedCallback(func(t []string) { p.Send(injectedMsg(t)) })
 	tools.PromptPermission = func(cmd string, bg bool) (string, string) {
 		reply := make(chan permReply, 1)
 		p.Send(permReqMsg{cmd: cmd, background: bg, reply: reply})
@@ -139,8 +142,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.add(roleTool, fmt.Sprintf("%s %s", msg.name, truncate(msg.args, 200)))
 		return m, nil
 
+	case injectedMsg:
+		m.queue = m.queue[min(len(msg), len(m.queue)):]
+		m.IsStreaming = false
+		for _, t := range msg {
+			m.add(roleUser, t)
+		}
+		m.layout()
+		return m, nil
+
 	case doneMsg:
 		m.running, m.cancel, m.IsStreaming = false, nil, false
+		if m.urgent {
+			m.urgent = false
+			m.add(roleInfo, "Interrupted.")
+			m.persist()
+			return m, m.drainQueue()
+		}
 		if msg.err != nil && msg.err != context.Canceled && !strings.Contains(msg.err.Error(), "context canceled") {
 			m.add(roleError, msg.err.Error())
 		} else if msg.err != nil {
@@ -148,7 +166,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.refresh()
 		m.persist()
-		return m, nil
+		if msg.err != nil {
+			m.restoreQueue()
+			return m, nil
+		}
+		return m, m.drainQueue()
 
 	case permReqMsg:
 		m.perm = &msg

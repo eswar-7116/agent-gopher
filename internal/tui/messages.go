@@ -5,6 +5,7 @@ type (
 	textMsg     string
 	toolCallMsg struct{ name, args string }
 	doneMsg     struct{ err error }
+	injectedMsg []string
 	permReqMsg  struct {
 		cmd        string
 		background bool
