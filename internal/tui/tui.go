@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/eswar-7116/agent-gopher/internal/agent"
+	"github.com/eswar-7116/agent-gopher/internal/memory"
 	"github.com/eswar-7116/agent-gopher/internal/tools"
 )
 
@@ -84,6 +85,7 @@ var slashCmds = []slashCmd{
 	{"/mode", "Switch mode: /mode plan | normal (no arg toggles)"},
 	{"/plan", "Switch to plan mode (read-only)"},
 	{"/normal", "Switch to normal mode"},
+	{"/gopher", "Memory: /gopher memory [global|project] | remember [global|project] <fact> | forget [global|project] <n|text>"},
 	{"/exit", "Quit Agent Gopher"},
 	{"/quit", "Quit Agent Gopher"},
 }
@@ -284,6 +286,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.layout()
 		m.history = append(m.history, text)
 		m.histIdx = len(m.history)
+		if strings.HasPrefix(text, "/") && m.runSlash(text) {
+			return m, nil
+		}
 		m.add(roleUser, text)
 		return m, m.start(text)
 	case "up", "down":
@@ -336,6 +341,11 @@ func (m *Model) runSlash(text string) bool {
 			m.add(roleError, err.Error())
 			return true
 		}
+	case "/gopher":
+		m.input.Reset()
+		m.layout()
+		m.runGopher(strings.TrimSpace(strings.TrimPrefix(text, "/gopher")))
+		return true
 	default:
 		return false
 	}
@@ -344,6 +354,60 @@ func (m *Model) runSlash(text string) bool {
 	m.agent.SetMode(target)
 	m.add(roleInfo, "Switched to "+target.String()+" mode.")
 	return true
+}
+
+const gopherUsage = "Usage: /gopher memory [global|project] · /gopher remember [global|project] <fact> · /gopher forget [global|project] <number|text>"
+
+// runGopher handles "/gopher <subcommand>" project-memory commands.
+func (m *Model) runGopher(args string) {
+	cmd, rest, _ := strings.Cut(args, " ")
+	rest = strings.TrimSpace(rest)
+	scope, rest := memoryScope(rest)
+	dir := m.agent.MemoryDir(scope)
+	if dir == "" {
+		m.add(roleError, "Memory is unavailable for the selected scope.")
+		return
+	}
+	switch cmd {
+	case "memory":
+		entries := memory.List(dir)
+		if len(entries) == 0 {
+			m.add(roleInfo, "No memories yet. Add one with /gopher remember "+scope+" <fact> ("+dir+").")
+			return
+		}
+		m.add(roleInfo, memory.Format(entries))
+	case "remember":
+		added, err := memory.Add(dir, rest)
+		switch {
+		case err != nil:
+			m.add(roleError, err.Error())
+		case !added:
+			m.add(roleInfo, "Already remembered.")
+		default:
+			m.add(roleInfo, "Remembered ("+scope+").")
+		}
+	case "forget":
+		e, err := memory.Remove(dir, rest)
+		if err != nil {
+			m.add(roleError, err.Error())
+			return
+		}
+		m.add(roleInfo, "Forgot ("+scope+"): "+e)
+	default:
+		m.add(roleInfo, gopherUsage)
+	}
+}
+
+func memoryScope(args string) (string, string) {
+	scope := memory.ScopeProject
+	name, rest, ok := strings.Cut(args, " ")
+	if !ok {
+		name, rest = args, ""
+	}
+	if name == memory.ScopeGlobal || name == memory.ScopeProject {
+		return name, strings.TrimSpace(rest)
+	}
+	return scope, args
 }
 
 func (m *Model) answer(choice, alt string) {

@@ -10,9 +10,8 @@ import (
 )
 
 const (
-	delegateToolName = "delegate_task"
-	subAgentMaxSteps = 25 // Bounds LLM round-trips of a sub-agent so a confused one can't loop forever.
-
+	delegateToolName     = "delegate_task"
+	subAgentMaxSteps     = 25 // Bounds LLM round-trips of a sub-agent so a confused one can't loop forever
 	subAgentSystemPrompt = "You are a sub-agent working on a single task delegated by a parent agent. " +
 		"You cannot ask the user questions. Complete the task using your tools, then reply with a concise " +
 		"final report containing everything the parent needs (findings, file paths, results). " +

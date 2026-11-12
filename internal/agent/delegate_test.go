@@ -30,9 +30,9 @@ func TestDelegateTaskRunsSubAgent(t *testing.T) {
 		first := msgs[0].(map[string]any)
 		var msg string
 		switch {
-		case first["role"] == "system": // sub-agent
+		case first["role"] == "system" && strings.Contains(first["content"].(string), "You are a sub-agent"):
 			msg = `{"role":"assistant","content":"sub report"}`
-		case len(msgs) == 1: // parent, first turn
+		case msgs[len(msgs)-1].(map[string]any)["role"] == "user": // parent, first turn
 			msg = `{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"delegate_task","arguments":"{\"task\":\"do it\"}"}}]}`
 		default: // parent, after tool result
 			msg = `{"role":"assistant","content":"done"}`

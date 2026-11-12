@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/eswar-7116/agent-gopher/internal/mcpclient"
+	"github.com/eswar-7116/agent-gopher/internal/memory"
 	"github.com/eswar-7116/agent-gopher/internal/skills"
 	"github.com/eswar-7116/agent-gopher/internal/tools"
 	"github.com/openai/openai-go/v3"
@@ -24,11 +25,18 @@ type Agent struct {
 	permissiveShell bool
 	tavilyAPIKey    string
 	logger          *log.Logger
-	onToolCall      func(name, arguments string)
-	onText          func(text string)
-	systemPrompt    string
-	maxSteps        int // max LLM round-trips per Run; 0 means unlimited
-	mode            Mode
+
+	onToolCall func(name, arguments string)
+	onText     func(text string)
+
+	systemPrompt string
+	maxSteps     int // max LLM round-trips per Run; 0 means unlimited
+
+	mode Mode
+
+	globalMemoryDir  string
+	projectMemoryDir string
+	memorySeen       string
 }
 
 type AgentOptions struct {
@@ -68,13 +76,26 @@ func NewAgent(opts AgentOptions) *Agent {
 	}
 
 	var promptParts []string
+	var projectPath string
 	if wd, err := os.Getwd(); err == nil {
+		projectPath = wd
 		if p := loadAgentsMD(wd, opts.Logger); p != "" {
 			promptParts = append(promptParts, p)
 		}
 	}
+	a.globalMemoryDir = memory.GlobalDir()
+	if projectPath != "" {
+		a.projectMemoryDir = memory.ProjectDir(projectPath)
+	}
+	if a.globalMemoryDir != "" || a.projectMemoryDir != "" {
+		// Register before copying the sub-agent registry so sub-agents can save memories too.
+		t := memory.Tool{GlobalDir: a.globalMemoryDir, ProjectDir: a.projectMemoryDir}
+		a.registry[t.Name()] = t
+		a.toolDefs = append(a.toolDefs, t.Definition())
+		promptParts = append(promptParts, memory.Guidance)
+	}
 
-	// Registered before the sub-agent registry is copied so sub-agents can use skills too.
+	// Register before copying the sub-agent registry so sub-agents can use skills too.
 	if dir := skills.Dir(); dir != "" {
 		if loaded := skills.Load(dir, opts.Logger); len(loaded) > 0 {
 			promptParts = append(promptParts, skills.Prompt(loaded))
@@ -109,10 +130,48 @@ func (a *Agent) SetTextCallback(fn func(text string)) {
 	a.onText = fn
 }
 
+func (a *Agent) MemoryDir(scope string) string {
+	if scope == memory.ScopeGlobal {
+		return a.globalMemoryDir
+	}
+	return a.projectMemoryDir
+}
+
+func (a *Agent) currentMemory() string {
+	global := memory.Content(a.globalMemoryDir, memory.ScopeGlobal)
+	project := memory.Content(a.projectMemoryDir, memory.ScopeProject)
+	if global == "" {
+		return project
+	}
+	if project == "" {
+		return global
+	}
+	return global + "\n\n" + project
+}
+
 func (a *Agent) Run(ctx context.Context, userPrompt string) error {
+	if a.globalMemoryDir != "" || a.projectMemoryDir != "" {
+		cur := a.currentMemory()
+		if len(a.messages) > 0 && cur != a.memorySeen {
+			update := cur
+			if update == "" {
+				update = "Global memory is now empty."
+			} else {
+				update = "Global memory was updated. Current contents:\n" + update
+			}
+			a.messages = append(a.messages, openai.SystemMessage(update))
+		}
+		a.memorySeen = cur
+
+		defer func() { a.memorySeen = a.currentMemory() }()
+	}
+
 	if len(a.messages) == 0 {
 		if a.systemPrompt != "" {
 			a.messages = append(a.messages, openai.SystemMessage(a.systemPrompt))
+		}
+		if a.memorySeen != "" {
+			a.messages = append(a.messages, openai.SystemMessage(a.memorySeen))
 		}
 		if a.mode == ModePlan {
 			a.messages = append(a.messages, openai.SystemMessage(planModePrompt))
