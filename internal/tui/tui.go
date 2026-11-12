@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
@@ -34,6 +35,10 @@ type Model struct {
 
 	sugIdx int // selected slash-command suggestion
 
+	// last applied wheel scroll, used to collapse bursts of wheel events.
+	lastWheel    time.Time
+	lastWheelDir tea.MouseButton
+
 	width, height int
 	ready         bool
 }
@@ -47,7 +52,11 @@ func Run(ag *agent.Agent) error {
 
 	sp := spinner.New(spinner.WithSpinner(spinner.Dot))
 
-	m := &Model{agent: ag, input: ti, spinner: sp, viewport: viewport.New()}
+	vp := viewport.New()
+	// Wheel scrolling is handled in Update
+	vp.MouseWheelEnabled = false
+
+	m := &Model{agent: ag, input: ti, spinner: sp, viewport: vp}
 	m.entries = append(m.entries, entry{roleInfo, "Welcome to Agent Gopher. Enter sends · PgUp/PgDn scroll · Esc cancels a running task · Ctrl+C or /exit quits."})
 
 	p := tea.NewProgram(m)
@@ -122,12 +131,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case tea.MouseWheelMsg:
-		var cmd tea.Cmd
-		m.viewport, cmd = m.viewport.Update(msg)
-		return m, cmd
+		m.handleWheel(msg)
+		return m, nil
 	}
 
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
+}
+
+const wheelInterval = 16 * time.Millisecond
+
+func (m *Model) handleWheel(msg tea.MouseWheelMsg) {
+	dir := msg.Mouse().Button
+	now := time.Now()
+	if dir == m.lastWheelDir && now.Sub(m.lastWheel) < wheelInterval {
+		return
+	}
+	m.lastWheel, m.lastWheelDir = now, dir
+	switch dir {
+	case tea.MouseWheelUp:
+		m.viewport.ScrollUp(1)
+	case tea.MouseWheelDown:
+		m.viewport.ScrollDown(1)
+	}
 }
