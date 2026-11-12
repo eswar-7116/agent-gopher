@@ -63,6 +63,7 @@ func (d delegateTool) Execute(ctx context.Context, args map[string]any) (any, er
 		logger:       p.logger,
 		systemPrompt: subAgentSystemPrompt,
 		maxSteps:     subAgentMaxSteps,
+		mode:         p.mode,
 		onToolCall: func(name, arguments string) {
 			if p.onToolCall != nil {
 				p.onToolCall("subagent:"+name, arguments)

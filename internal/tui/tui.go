@@ -81,6 +81,9 @@ type Model struct {
 type slashCmd struct{ name, desc string }
 
 var slashCmds = []slashCmd{
+	{"/mode", "Switch mode: /mode plan | normal (no arg toggles)"},
+	{"/plan", "Switch to plan mode (read-only)"},
+	{"/normal", "Switch to normal mode"},
 	{"/exit", "Quit Agent Gopher"},
 	{"/quit", "Quit Agent Gopher"},
 }
@@ -309,6 +312,40 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// Handles mode commands
+func (m *Model) runSlash(text string) bool {
+	fields := strings.Fields(text)
+	var target agent.Mode
+	switch fields[0] {
+	case "/plan":
+		target = agent.ModePlan
+	case "/normal":
+		target = agent.ModeNormal
+	case "/mode":
+		if len(fields) < 2 {
+			target = agent.ModePlan
+			if m.agent.Mode() == agent.ModePlan {
+				target = agent.ModeNormal
+			}
+			break
+		}
+		var err error
+		if target, err = agent.ParseMode(fields[1]); err != nil {
+			m.input.Reset()
+			m.layout()
+			m.add(roleError, err.Error())
+			return true
+		}
+	default:
+		return false
+	}
+	m.input.Reset()
+	m.layout()
+	m.agent.SetMode(target)
+	m.add(roleInfo, "Switched to "+target.String()+" mode.")
+	return true
+}
+
 func (m *Model) answer(choice, alt string) {
 	if m.perm == nil {
 		return
@@ -409,9 +446,13 @@ func (m *Model) View() tea.View {
 	b.WriteString(m.viewport.View())
 	b.WriteString("\n")
 
-	status := "/ commands · Enter send · ↑/↓ history · PgUp/PgDn scroll · Ctrl+C quit"
+	modeTag := ""
+	if m.agent.Mode() == agent.ModePlan {
+		modeTag = "[PLAN] "
+	}
+	status := modeTag + "/ commands · Enter send · ↑/↓ history · PgUp/PgDn scroll · Ctrl+C quit"
 	if m.running {
-		status = "Esc cancel · Ctrl+C quit"
+		status = modeTag + "Esc cancel · Ctrl+C quit"
 	}
 	if m.perm != nil {
 		kind := "command"

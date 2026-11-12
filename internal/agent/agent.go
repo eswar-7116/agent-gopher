@@ -27,6 +27,7 @@ type Agent struct {
 	onText          func(text string)
 	systemPrompt    string
 	maxSteps        int // max LLM round-trips per Run; 0 means unlimited
+	mode            Mode
 }
 
 type AgentOptions struct {
@@ -92,15 +93,20 @@ func (a *Agent) SetTextCallback(fn func(text string)) {
 }
 
 func (a *Agent) Run(ctx context.Context, userPrompt string) error {
-	if len(a.messages) == 0 && a.systemPrompt != "" {
-		a.messages = append(a.messages, openai.SystemMessage(a.systemPrompt))
+	if len(a.messages) == 0 {
+		if a.systemPrompt != "" {
+			a.messages = append(a.messages, openai.SystemMessage(a.systemPrompt))
+		}
+		if a.mode == ModePlan {
+			a.messages = append(a.messages, openai.SystemMessage(planModePrompt))
+		}
 	}
 	a.messages = append(a.messages, openai.UserMessage(userPrompt))
 
 	params := openai.ChatCompletionNewParams{
 		Model:    openai.ChatModel(a.model),
 		Messages: a.messages,
-		Tools:    a.toolDefs,
+		Tools:    filterDefs(a.mode, a.toolDefs),
 	}
 
 	for step := 0; ; step++ {
@@ -144,6 +150,9 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 }
 
 func (a *Agent) executeToolCall(ctx context.Context, name, arguments string) string {
+	if !toolAllowed(a.mode, name) {
+		return fmt.Sprintf("Error: tool %q is disabled in plan mode", name)
+	}
 	tool, ok := a.registry[name]
 	if !ok {
 		return fmt.Sprintf("Error: unknown tool %q", name)
