@@ -14,10 +14,8 @@ import (
 )
 
 const (
-	skillsDirName = "skills"
 	skillFileName = "SKILL.md"
 	ToolName      = "use_skill"
-	configDirName = ".agent-gopher"
 )
 
 // Skill is a reusable set of instructions stored in <skills dir>/<dir name>/SKILL.md
@@ -164,13 +162,4 @@ func (t tool) Execute(_ context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("unknown skill %q (available: %s)", name, strings.Join(t.names, ", "))
 	}
 	return s.Body, nil
-}
-
-// Dir returns ~/.agent-gopher/skills
-func Dir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, configDirName, skillsDirName)
 }

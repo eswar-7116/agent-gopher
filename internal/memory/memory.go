@@ -3,14 +3,12 @@ package memory
 import (
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 )
 
 const (
-	configDirName   = ".agent-gopher"
 	memoryFileName  = "facts.md"
 	maxContentBytes = 16 * 1024 //  Bounds how much memory is placed in the prompt
 	maxEntryRunes   = 500       // Bounds a single remembered fact
@@ -20,33 +18,6 @@ const (
 	ScopeGlobal  = "global"
 	ScopeProject = "project"
 )
-
-func GlobalDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, configDirName)
-}
-
-func NormalizeProjectPath(projectPath string) string {
-	cleaned := path.Clean(strings.ReplaceAll(projectPath, `\`, "/"))
-	cleaned = strings.TrimPrefix(cleaned, "/")
-	cleaned = strings.ReplaceAll(cleaned, ":", "")
-	normalized := strings.ToLower(strings.ReplaceAll(cleaned, "/", "-"))
-	if normalized == "" || normalized == "." {
-		return "root"
-	}
-	return normalized
-}
-
-func ProjectDir(projectPath string) string {
-	root := GlobalDir()
-	if root == "" {
-		return ""
-	}
-	return filepath.Join(root, NormalizeProjectPath(projectPath))
-}
 
 func oneLine(s string) string {
 	s = strings.Join(strings.Fields(s), " ")

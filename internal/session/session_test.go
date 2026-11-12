@@ -9,13 +9,15 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/eswar-7116/agent-gopher/internal/paths"
 )
 
 func isolateHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	paths.InitWithBase(home, "/tmp/proj")
+	t.Cleanup(func() { paths.InitWithBase("", "") })
 	return home
 }
 
@@ -64,8 +66,8 @@ func TestNewIDUsesNanoIDAlphabet(t *testing.T) {
 
 func TestPathUsesNormalizedProjectDirAndJSONL(t *testing.T) {
 	home := isolateHome(t)
-	got := Path("/home/eswar/agent-gopher", "abc")
-	want := filepath.Join(home, RootDirName, "home-eswar-agent-gopher", "abc.jsonl")
+	got := Path("abc")
+	want := filepath.Join(home, ".agent-memory", "tmp-proj", "abc.jsonl")
 	if got != want {
 		t.Fatalf("Path = %q, want %q", got, want)
 	}
@@ -85,7 +87,7 @@ func TestUnarmedWriterNeverCreatesAFile(t *testing.T) {
 	if w.Created() {
 		t.Fatal("Created() = true for a writer never armed")
 	}
-	if _, err := os.Stat(filepath.Join(home, RootDirName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(home, ".agent-memory")); !os.IsNotExist(err) {
 		t.Fatalf("session root exists for a writer never armed: %v", err)
 	}
 }
@@ -303,14 +305,14 @@ func TestListSummarizesNewestFirstAndSkipsJunk(t *testing.T) {
 		}
 	}
 	old := time.Now().Add(-time.Hour)
-	if err := os.Chtimes(Path("/tmp/proj", "older"), old, old); err != nil {
+	if err := os.Chtimes(Path("older"), old, old); err != nil {
 		t.Fatalf("Chtimes: %v", err)
 	}
-	dir := Dir("/tmp/proj")
+	dir := paths.SessionsDir
 	os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("ignored"), 0o600)
 	os.WriteFile(filepath.Join(dir, "old-format.json"), []byte("{}"), 0o600)
 
-	list, err := List("/tmp/proj")
+	list, err := List()
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -326,8 +328,9 @@ func TestListSummarizesNewestFirstAndSkipsJunk(t *testing.T) {
 }
 
 func TestListOnMissingDirIsEmpty(t *testing.T) {
-	isolateHome(t)
-	list, err := List("/tmp/never-used")
+	paths.InitWithBase(t.TempDir(), "/tmp/never-used")
+	t.Cleanup(func() { paths.InitWithBase("", "") })
+	list, err := List()
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}

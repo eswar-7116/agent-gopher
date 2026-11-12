@@ -13,6 +13,7 @@ import (
 	"github.com/eswar-7116/agent-gopher/internal/config"
 	"github.com/eswar-7116/agent-gopher/internal/llm"
 	"github.com/eswar-7116/agent-gopher/internal/mcpclient"
+	"github.com/eswar-7116/agent-gopher/internal/paths"
 	"github.com/eswar-7116/agent-gopher/internal/tools"
 	"github.com/eswar-7116/agent-gopher/internal/tui"
 )
@@ -27,6 +28,9 @@ func main() {
 		os.Exit(1)
 	}()
 
+	if err := paths.Init(); err != nil {
+		log.Fatalf("error resolving paths: %v", err)
+	}
 	cfg := config.Load()
 	client := llm.NewClient(cfg.OpenRouterAPIKey, cfg.BaseURL)
 

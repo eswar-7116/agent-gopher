@@ -37,7 +37,7 @@ func NewWriter(s *State) *Writer {
 			Model:       s.Model,
 			Mode:        s.Mode,
 		},
-		path: Path(s.ProjectPath, s.ID),
+		path: Path(s.ID),
 	}
 }
 

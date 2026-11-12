@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/eswar-7116/agent-gopher/internal/agent"
+	"github.com/eswar-7116/agent-gopher/internal/paths"
 	"github.com/eswar-7116/agent-gopher/internal/session"
 	"github.com/openai/openai-go/v3"
 )
@@ -16,8 +17,8 @@ import (
 func isolateHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	paths.InitWithBase(home, "/tmp/proj")
+	t.Cleanup(func() { paths.InitWithBase("", "") })
 	return home
 }
 
@@ -88,7 +89,7 @@ func TestNothingIsWrittenUntilTheAgentReplies(t *testing.T) {
 			if path, err := m.closeSession(); err != nil || path != "" {
 				t.Fatalf("closeSession = (%q, %v), want nothing written", path, err)
 			}
-			if _, err := os.Stat(filepath.Join(home, session.RootDirName)); !os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(home, ".agent-memory")); !os.IsNotExist(err) {
 				t.Fatalf("session root was created anyway: %v", err)
 			}
 		})
@@ -106,7 +107,7 @@ func TestReplyWritesTheWholeSessionIncludingWhatCameBefore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("flushSession: %v", err)
 	}
-	want := filepath.Join(home, session.RootDirName, "tmp-proj", "testsession0001"+session.Ext)
+	want := filepath.Join(home, ".agent-memory", "tmp-proj", "testsession0001"+session.Ext)
 	if path != want {
 		t.Fatalf("wrote %q, want %q", path, want)
 	}

@@ -4,7 +4,8 @@ import (
 	"encoding/json"
 	"log"
 	"os"
-	"path/filepath"
+
+	"github.com/eswar-7116/agent-gopher/internal/paths"
 )
 
 type MCPServerConfig struct {
@@ -24,19 +25,12 @@ type Config struct {
 }
 
 func Load() Config {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		log.Fatalf("error getting home directory: %v", err)
-	}
-
-	configDir := filepath.Join(homeDir, ".agent-gopher")
-	configPath := filepath.Join(configDir, "config.json")
-
+	configPath := paths.ConfigFile
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Create default config
-			err = os.MkdirAll(configDir, 0755)
+			err = os.MkdirAll(paths.ConfigDir, 0755)
 			if err != nil {
 				log.Fatalf("error creating config directory: %v", err)
 			}
@@ -86,18 +80,10 @@ func Load() Config {
 }
 
 func Save(cfg Config) error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-
-	configDir := filepath.Join(homeDir, ".agent-gopher")
-	configPath := filepath.Join(configDir, "config.json")
-
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(configPath, data, 0644)
+	return os.WriteFile(paths.ConfigFile, data, 0644)
 }

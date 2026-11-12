@@ -1,11 +1,11 @@
 package tui
 
 import (
-	"os"
 	"sync"
 	"time"
 
 	"github.com/eswar-7116/agent-gopher/internal/agent"
+	"github.com/eswar-7116/agent-gopher/internal/paths"
 	"github.com/eswar-7116/agent-gopher/internal/session"
 )
 
@@ -45,10 +45,9 @@ func newSessionLog(ag *agent.Agent) *session.Writer {
 	if err != nil {
 		return nil
 	}
-	wd, _ := os.Getwd()
 	return session.NewWriter(&session.State{
 		ID:          id,
-		ProjectPath: wd,
+		ProjectPath: paths.ProjectPath,
 		CreatedAt:   time.Now(),
 		Model:       ag.Model(),
 		Mode:        ag.Mode().String(),

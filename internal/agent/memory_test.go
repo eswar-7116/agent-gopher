@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/eswar-7116/agent-gopher/internal/memory"
+	"github.com/eswar-7116/agent-gopher/internal/paths"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 )
@@ -26,9 +27,9 @@ func TestMemoryReachesModel(t *testing.T) {
 
 	wd := t.TempDir()
 	t.Chdir(wd)
-	t.Setenv("HOME", wd)
-	globalDir := memory.GlobalDir()
-	projectDir := memory.ProjectDir(wd)
+	paths.InitWithBase(wd, wd)
+	t.Cleanup(func() { paths.InitWithBase("", "") })
+	globalDir, projectDir := paths.GlobalMemoryDir, paths.ProjectMemoryDir
 	if _, err := memory.Add(globalDir, "Uses fish shell"); err != nil {
 		t.Fatal(err)
 	}

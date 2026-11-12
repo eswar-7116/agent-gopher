@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"slices"
 	"strings"
 	"sync"
 
 	"github.com/eswar-7116/agent-gopher/internal/mcpclient"
 	"github.com/eswar-7116/agent-gopher/internal/memory"
+	"github.com/eswar-7116/agent-gopher/internal/paths"
 	"github.com/eswar-7116/agent-gopher/internal/skills"
 	"github.com/eswar-7116/agent-gopher/internal/tools"
 	"github.com/openai/openai-go/v3"
@@ -80,17 +80,12 @@ func NewAgent(opts AgentOptions) *Agent {
 	}
 
 	var promptParts []string
-	var projectPath string
-	if wd, err := os.Getwd(); err == nil {
-		projectPath = wd
-		if p := loadAgentsMD(wd, opts.Logger); p != "" {
+	if paths.ProjectPath != "" {
+		if p := loadAgentsMD(paths.ProjectPath, opts.Logger); p != "" {
 			promptParts = append(promptParts, p)
 		}
 	}
-	a.globalMemoryDir = memory.GlobalDir()
-	if projectPath != "" {
-		a.projectMemoryDir = memory.ProjectDir(projectPath)
-	}
+	a.globalMemoryDir, a.projectMemoryDir = paths.GlobalMemoryDir, paths.ProjectMemoryDir
 	if a.globalMemoryDir != "" || a.projectMemoryDir != "" {
 		// Register before copying the sub-agent registry so sub-agents can save memories too.
 		t := memory.Tool{GlobalDir: a.globalMemoryDir, ProjectDir: a.projectMemoryDir}
@@ -100,8 +95,8 @@ func NewAgent(opts AgentOptions) *Agent {
 	}
 
 	// Register before copying the sub-agent registry so sub-agents can use skills too.
-	if dir := skills.Dir(); dir != "" {
-		if loaded := skills.Load(dir, opts.Logger); len(loaded) > 0 {
+	if paths.SkillsDir != "" {
+		if loaded := skills.Load(paths.SkillsDir, opts.Logger); len(loaded) > 0 {
 			promptParts = append(promptParts, skills.Prompt(loaded))
 			t := skills.NewTool(loaded)
 			a.registry[t.Name()] = t

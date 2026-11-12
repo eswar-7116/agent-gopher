@@ -117,26 +117,3 @@ func TestTool(t *testing.T) {
 		t.Error("expected error for missing scope")
 	}
 }
-
-func TestMemoryDirectories(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	wantRoot := filepath.Join(home, configDirName)
-	if got := GlobalDir(); got != wantRoot {
-		t.Fatalf("GlobalDir() = %q, want %q", got, wantRoot)
-	}
-	for _, test := range []struct {
-		projectPath string
-		wantName    string
-	}{
-		{`C:\Users\eswar\MyProj`, "c-users-eswar-myproj"},
-		{"/home/eswar/MyProj", "home-eswar-myproj"},
-	} {
-		if got := NormalizeProjectPath(test.projectPath); got != test.wantName {
-			t.Errorf("NormalizeProjectPath(%q) = %q, want %q", test.projectPath, got, test.wantName)
-		}
-		if got, want := ProjectDir(test.projectPath), filepath.Join(wantRoot, test.wantName); got != want {
-			t.Errorf("ProjectDir(%q) = %q, want %q", test.projectPath, got, want)
-		}
-	}
-}

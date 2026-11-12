@@ -11,13 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eswar-7116/agent-gopher/internal/memory"
+	"github.com/eswar-7116/agent-gopher/internal/paths"
 	gonanoid "github.com/matoous/go-nanoid/v2"
 )
 
 const (
-	RootDirName = ".agent-memory"
-	Ext         = ".jsonl"
+	Ext = ".jsonl"
 
 	// Schema version written into new logs
 	Version = 1
@@ -105,31 +104,12 @@ func NewID() (string, error) {
 	return id, nil
 }
 
-// Returns the directory holding every project's sessions
-func Root() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
+// Returns the log file of a session in the current project
+func Path(id string) string {
+	if paths.SessionsDir == "" || id == "" {
 		return ""
 	}
-	return filepath.Join(home, RootDirName)
-}
-
-// Returns the directory holding one project's sessions
-func Dir(projectPath string) string {
-	root := Root()
-	if root == "" {
-		return ""
-	}
-	return filepath.Join(root, memory.NormalizeProjectPath(projectPath))
-}
-
-// Returns the log file of a session
-func Path(projectPath, id string) string {
-	dir := Dir(projectPath)
-	if dir == "" || id == "" {
-		return ""
-	}
-	return filepath.Join(dir, id+Ext)
+	return filepath.Join(paths.SessionsDir, id+Ext)
 }
 
 // Returns a line scanner sized for large records
@@ -232,11 +212,11 @@ func peek(path string) (*Info, error) {
 	return info, nil
 }
 
-// Summarizes a project's sessions, newest first
-func List(projectPath string) ([]*Info, error) {
-	dir := Dir(projectPath)
+// Summarizes the current project's sessions, newest first
+func List() ([]*Info, error) {
+	dir := paths.SessionsDir
 	if dir == "" {
-		return nil, errors.New("cannot locate home directory for session storage")
+		return nil, errors.New("session storage is unavailable")
 	}
 	names, err := os.ReadDir(dir)
 	if err != nil {
