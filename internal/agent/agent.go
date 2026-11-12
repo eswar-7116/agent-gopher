@@ -310,13 +310,24 @@ func (a *Agent) GetMessages() []openai.ChatCompletionMessageParamUnion {
 	return messages
 }
 
-// Returns the conversation history encoded as JSON, for persisting it
-func (a *Agent) MessagesJSON() (json.RawMessage, error) {
-	msgs := a.GetMessages()
-	if len(msgs) == 0 {
-		return nil, nil
+// Returns the messages from a given index, each encoded as JSON
+func (a *Agent) MessagesJSONFrom(from int) ([]json.RawMessage, error) {
+	a.msgMu.RLock()
+	var tail []openai.ChatCompletionMessageParamUnion
+	if from < len(a.messages) {
+		tail = append(tail, a.messages[max(from, 0):]...)
 	}
-	return json.Marshal(msgs)
+	a.msgMu.RUnlock()
+
+	out := make([]json.RawMessage, 0, len(tail))
+	for _, msg := range tail {
+		b, err := json.Marshal(msg)
+		if err != nil {
+			return nil, fmt.Errorf("encode message: %w", err)
+		}
+		out = append(out, b)
+	}
+	return out, nil
 }
 
 // Returns the content of the last assistant message

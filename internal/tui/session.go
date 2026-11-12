@@ -3,7 +3,9 @@ package tui
 import (
 	"os"
 	"sync"
+	"time"
 
+	"github.com/eswar-7116/agent-gopher/internal/agent"
 	"github.com/eswar-7116/agent-gopher/internal/session"
 )
 
@@ -26,7 +28,7 @@ func setActive(m *Model) {
 	active = m
 }
 
-// Writes the running TUI's chat state
+// Flushes the running TUI's chat state
 func SaveActiveSession() (string, error) {
 	activeMu.Lock()
 	m := active
@@ -34,80 +36,95 @@ func SaveActiveSession() (string, error) {
 	if m == nil {
 		return "", nil
 	}
-	return m.saveSession()
+	return m.flushSession()
 }
 
-// Builds the state to persist from the current conversation
-func (m *Model) snapshot() *session.State {
-	m.stateMu.RLock()
-	entries := make([]session.Entry, 0, len(m.entries))
-	for _, e := range m.entries {
-		name, ok := roleNames[e.role]
-		if !ok {
-			name = "info"
-		}
-		entries = append(entries, session.Entry{Role: name, Content: e.content})
-	}
-	history := append([]string(nil), m.history...)
-	m.stateMu.RUnlock()
-
-	s := &session.State{
-		ID:           m.sessionID,
-		Version:      session.Version,
-		ProjectPath:  m.projectPath,
-		CreatedAt:    m.startedAt,
-		Model:        m.agent.Model(),
-		Mode:         m.agent.Mode().String(),
-		Entries:      entries,
-		InputHistory: history,
-	}
-	if msgs, err := m.agent.MessagesJSON(); err == nil {
-		s.Messages = msgs
-	}
-	return s
-}
-
-// Persists the chat state
-func (m *Model) saveSession() (string, error) {
-	if m.sessionID == "" {
-		return "", nil
-	}
-	s := m.snapshot()
-	if !worthSaving(s) {
-		return "", nil
-	}
-	return session.Save(s)
-}
-
-// Reports whether the agent has replied at least once
-func worthSaving(s *session.State) bool {
-	for _, e := range s.Entries {
-		if e.Role == roleNames[roleAssistant] {
-			return true
-		}
-	}
-	return false
-}
-
-func newSessionID() string {
+// Starts the session log; nil if no id could be generated
+func newSessionLog(ag *agent.Agent) *session.Writer {
 	id, err := session.NewID()
 	if err != nil {
-		return ""
+		return nil
 	}
-	return id
+	wd, _ := os.Getwd()
+	return session.NewWriter(&session.State{
+		ID:          id,
+		ProjectPath: wd,
+		CreatedAt:   time.Now(),
+		Model:       ag.Model(),
+		Mode:        ag.Mode().String(),
+	})
 }
 
-func workingDir() string {
-	wd, err := os.Getwd()
+// Queues a finished transcript line; caller holds stateMu
+func (m *Model) logEntryLocked(e entry, at time.Time) {
+	if m.log == nil {
+		return
+	}
+	name, ok := roleNames[e.role]
+	if !ok {
+		name = roleNames[roleInfo]
+	}
+	m.log.AppendEntry(name, e.content, at)
+	// First reply makes the session worth keeping
+	if e.role == roleAssistant {
+		m.log.Arm()
+	}
+}
+
+// Queues the streamed reply once complete; caller holds stateMu
+func (m *Model) sealLocked() {
+	if !m.open || len(m.entries) == 0 {
+		return
+	}
+	m.open = false
+	m.logEntryLocked(m.entries[len(m.entries)-1], m.openAt)
+}
+
+// Appends new records to the session log
+func (m *Model) flushSession() (string, error) {
+	if m.log == nil {
+		return "", nil
+	}
+	m.flushMu.Lock()
+	defer m.flushMu.Unlock()
+
+	m.stateMu.Lock()
+	m.sealLocked()
+	m.stateMu.Unlock()
+
+	msgs, err := m.agent.MessagesJSONFrom(m.loggedMessages)
 	if err != nil {
-		return ""
+		return "", err
 	}
-	return wd
+	for _, msg := range msgs {
+		m.log.AppendMessage(msg)
+	}
+	m.loggedMessages += len(msgs)
+
+	if err := m.log.Flush(); err != nil {
+		return "", err
+	}
+	if !m.log.Created() {
+		return "", nil
+	}
+	return m.log.Path(), nil
 }
 
-// Saves the chat state mid-session, after each completed agent run
+// Flushes and closes the session log on exit
+func (m *Model) closeSession() (string, error) {
+	if m.log == nil {
+		return "", nil
+	}
+	path, err := m.flushSession()
+	if cerr := m.log.Close(m.agent.Mode().String()); err == nil {
+		err = cerr
+	}
+	return path, err
+}
+
+// Saves the chat state after each completed agent run
 func (m *Model) persist() {
-	if _, err := m.saveSession(); err != nil && !m.saveFailed {
+	if _, err := m.flushSession(); err != nil && !m.saveFailed {
 		m.saveFailed = true
 		m.add(roleError, "Could not save chat state: "+err.Error())
 	}

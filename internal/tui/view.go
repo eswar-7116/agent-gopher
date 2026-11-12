@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
@@ -10,8 +11,16 @@ import (
 )
 
 func (m *Model) add(r role, content string) {
+	now := time.Now()
 	m.stateMu.Lock()
-	m.entries = append(m.entries, entry{r, content})
+	m.sealLocked()
+	e := entry{r, content}
+	m.entries = append(m.entries, e)
+	if r == roleAssistant {
+		m.open, m.openAt = true, now
+	} else {
+		m.logEntryLocked(e, now)
+	}
 	m.stateMu.Unlock()
 	m.refresh()
 }

@@ -132,6 +132,9 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 	m.history = append(m.history, text)
 	m.histIdx = len(m.history)
 	m.stateMu.Unlock()
+	if m.log != nil {
+		m.log.AppendInput(text)
+	}
 	if strings.HasPrefix(text, "/") && m.runSlash(text) {
 		return m, nil
 	}

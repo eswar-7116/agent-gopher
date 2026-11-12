@@ -1,10 +1,12 @@
 package session
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -15,6 +17,27 @@ func isolateHome(t *testing.T) string {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	return home
+}
+
+func newTestWriter(id string) *Writer {
+	return NewWriter(&State{ID: id, ProjectPath: "/tmp/proj", Model: "m1", Mode: "normal"})
+}
+
+func readLines(t *testing.T, path string) []map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	var out []map[string]any
+	for _, line := range strings.Split(strings.TrimRight(string(data), "\n"), "\n") {
+		var rec map[string]any
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("line is not JSON: %q: %v", line, err)
+		}
+		out = append(out, rec)
+	}
+	return out
 }
 
 func TestNewIDUsesNanoIDAlphabet(t *testing.T) {
@@ -39,140 +62,255 @@ func TestNewIDUsesNanoIDAlphabet(t *testing.T) {
 	}
 }
 
-func TestDirUsesNormalizedProjectPath(t *testing.T) {
+func TestPathUsesNormalizedProjectDirAndJSONL(t *testing.T) {
 	home := isolateHome(t)
-	dir := Dir("/home/eswar/agent-gopher")
-	want := filepath.Join(home, RootDirName, "home-eswar-agent-gopher")
-	if dir != want {
-		t.Fatalf("Dir = %q, want %q", dir, want)
+	got := Path("/home/eswar/agent-gopher", "abc")
+	want := filepath.Join(home, RootDirName, "home-eswar-agent-gopher", "abc.jsonl")
+	if got != want {
+		t.Fatalf("Path = %q, want %q", got, want)
 	}
 }
 
-func TestSaveWritesStateAndLoadReadsItBack(t *testing.T) {
+func TestUnarmedWriterNeverCreatesAFile(t *testing.T) {
+	home := isolateHome(t)
+	w := newTestWriter("unarmed")
+	w.AppendEntry("info", "welcome", time.Time{})
+	w.AppendInput("/plan")
+	if err := w.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	if err := w.Close("plan"); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if w.Created() {
+		t.Fatal("Created() = true for a writer never armed")
+	}
+	if _, err := os.Stat(filepath.Join(home, RootDirName)); !os.IsNotExist(err) {
+		t.Fatalf("session root exists for a writer never armed: %v", err)
+	}
+}
+
+func TestArmingFlushesWhatWasBufferedBeforeIt(t *testing.T) {
 	isolateHome(t)
-	s := &State{
-		ID:           "abc123",
-		ProjectPath:  "/tmp/proj",
-		Model:        "some-model",
-		Mode:         "normal",
-		Entries:      []Entry{{Role: "user", Content: "hi"}, {Role: "assistant", Content: "hello"}},
-		InputHistory: []string{"hi"},
-		Messages:     json.RawMessage(`[{"role":"user","content":"hi"}]`),
+	w := newTestWriter("buffered")
+	w.AppendEntry("user", "hello", time.Time{})
+	if err := w.Flush(); err != nil { // not armed yet
+		t.Fatalf("Flush: %v", err)
+	}
+	w.AppendEntry("assistant", "hi", time.Time{})
+	w.Arm()
+	if err := w.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
 	}
 
-	path, err := Save(s)
+	lines := readLines(t, w.Path())
+	if len(lines) != 3 {
+		t.Fatalf("got %d lines, want meta + 2 entries", len(lines))
+	}
+	if lines[0]["type"] != "meta" || lines[0]["id"] != "buffered" {
+		t.Fatalf("first line is not this session's meta: %v", lines[0])
+	}
+	if lines[1]["content"] != "hello" || lines[2]["content"] != "hi" {
+		t.Fatalf("entries out of order: %v, %v", lines[1], lines[2])
+	}
+}
+
+func TestFlushOnlyAppends(t *testing.T) {
+	isolateHome(t)
+	w := newTestWriter("appendonly")
+	w.Arm()
+	w.AppendEntry("assistant", "one", time.Time{})
+	if err := w.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	before, err := os.ReadFile(w.Path())
 	if err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-	if got := filepath.Base(path); got != "abc123"+Ext {
-		t.Fatalf("file name = %q, want %q", got, "abc123"+Ext)
-	}
-	if s.CreatedAt.IsZero() || s.UpdatedAt.IsZero() {
-		t.Fatal("Save did not stamp CreatedAt/UpdatedAt")
-	}
-	if s.Version != Version {
-		t.Fatalf("Version = %d, want %d", s.Version, Version)
+		t.Fatalf("read: %v", err)
 	}
 
-	got, err := Load(path)
+	w.AppendEntry("assistant", "two", time.Time{})
+	if err := w.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	after, err := os.ReadFile(w.Path())
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	if !bytes.HasPrefix(after, before) {
+		t.Fatal("second flush rewrote earlier bytes instead of appending")
+	}
+	if n := bytes.Count(after[len(before):], []byte("\n")); n != 1 {
+		t.Fatalf("second flush appended %d lines, want 1", n)
+	}
+	if bytes.Count(after, []byte(`"type":"meta"`)) != 1 {
+		t.Fatal("meta written more than once")
+	}
+}
+
+func TestEmptyFlushWritesNothing(t *testing.T) {
+	isolateHome(t)
+	w := newTestWriter("empty")
+	w.Arm()
+	if err := w.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	if w.Created() {
+		t.Fatal("an armed flush with nothing queued created the file")
+	}
+}
+
+func TestLoadFoldsTheLogBack(t *testing.T) {
+	isolateHome(t)
+	w := newTestWriter("roundtrip")
+	w.Arm()
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	w.AppendEntry("user", "hello", at)
+	w.AppendInput("hello")
+	w.AppendInput("/plan")
+	w.AppendMessage(json.RawMessage(`{"role":"user","content":"hello"}`))
+	w.AppendEntry("assistant", "hi there", time.Time{})
+	w.AppendMessage(json.RawMessage(`{"role":"assistant","content":"hi there"}`))
+	if err := w.Close("plan"); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	s, err := Load(w.Path())
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got.ID != s.ID || got.Model != s.Model || got.Mode != s.Mode {
-		t.Fatalf("round-trip mismatch: %+v", got)
+	if s.ID != "roundtrip" || s.ProjectPath != "/tmp/proj" || s.Model != "m1" || s.Version != Version {
+		t.Fatalf("meta not folded: %+v", s)
 	}
-	if len(got.Entries) != 2 || got.Entries[1].Content != "hello" {
-		t.Fatalf("entries = %+v", got.Entries)
+	if s.Mode != "plan" {
+		t.Fatalf("Mode = %q, want the final mode from the end record", s.Mode)
 	}
-	if len(got.InputHistory) != 1 || got.InputHistory[0] != "hi" {
-		t.Fatalf("input history = %+v", got.InputHistory)
+	if !s.Complete {
+		t.Fatal("Complete = false after Close")
 	}
-	var msgs []map[string]any
-	if err := json.Unmarshal(got.Messages, &msgs); err != nil {
-		t.Fatalf("messages are not valid JSON: %v", err)
+	if s.CreatedAt.IsZero() || s.UpdatedAt.Before(s.CreatedAt) {
+		t.Fatalf("timestamps: created %v, updated %v", s.CreatedAt, s.UpdatedAt)
 	}
-	if len(msgs) != 1 || msgs[0]["content"] != "hi" {
-		t.Fatalf("messages = %+v", msgs)
+	if len(s.Entries) != 2 || s.Entries[1].Content != "hi there" {
+		t.Fatalf("entries = %+v", s.Entries)
+	}
+	if !s.Entries[0].At.Equal(at) {
+		t.Fatalf("entry time = %v, want the time it was appended with, %v", s.Entries[0].At, at)
+	}
+	if strings.Join(s.InputHistory, "|") != "hello|/plan" {
+		t.Fatalf("input history = %v", s.InputHistory)
+	}
+	if len(s.Messages) != 2 {
+		t.Fatalf("got %d messages, want 2", len(s.Messages))
+	}
+	var m map[string]string
+	if err := json.Unmarshal(s.Messages[1], &m); err != nil || m["content"] != "hi there" {
+		t.Fatalf("message 1 = %s (%v)", s.Messages[1], err)
 	}
 }
 
-func TestSaveTwiceRewritesTheSameFile(t *testing.T) {
+func TestLoadSurvivesATornLastLine(t *testing.T) {
 	isolateHome(t)
-	s := &State{ID: "sameid", ProjectPath: "/tmp/proj", Entries: []Entry{{Role: "user", Content: "one"}}}
-
-	first, err := Save(s)
+	w := newTestWriter("torn")
+	w.Arm()
+	w.AppendEntry("user", "hello", time.Time{})
+	w.AppendEntry("assistant", "hi", time.Time{})
+	if err := w.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	// Simulate a kill mid-write
+	f, err := os.OpenFile(w.Path(), os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
-		t.Fatalf("first Save: %v", err)
+		t.Fatalf("open: %v", err)
 	}
-	created := s.CreatedAt
+	f.WriteString(`{"type":"entry","role":"assis`)
+	f.Close()
 
-	s.Entries = append(s.Entries, Entry{Role: "user", Content: "two"})
-	second, err := Save(s)
-	if err != nil {
-		t.Fatalf("second Save: %v", err)
-	}
-	if first != second {
-		t.Fatalf("second save went to %q, want %q", second, first)
-	}
-	if !s.CreatedAt.Equal(created) {
-		t.Fatal("second save overwrote CreatedAt")
-	}
-
-	entries, err := os.ReadDir(filepath.Dir(first))
-	if err != nil {
-		t.Fatalf("ReadDir: %v", err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("got %d files in the session dir, want 1: %v", len(entries), entries)
-	}
-
-	got, err := Load(first)
+	s, err := Load(w.Path())
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(got.Entries) != 2 {
-		t.Fatalf("reloaded %d entries, want 2", len(got.Entries))
+	if len(s.Entries) != 2 {
+		t.Fatalf("got %d entries, want the 2 before the tear", len(s.Entries))
+	}
+	if s.Complete {
+		t.Fatal("Complete = true for a log that never got its end record")
 	}
 }
 
-func TestSaveRejectsStateWithoutID(t *testing.T) {
+func TestCloseIsFinal(t *testing.T) {
 	isolateHome(t)
-	if _, err := Save(&State{ProjectPath: "/tmp/proj"}); err == nil {
-		t.Fatal("Save with no id: want error, got nil")
+	w := newTestWriter("closed")
+	w.Arm()
+	w.AppendEntry("assistant", "hi", time.Time{})
+	if err := w.Close("normal"); err != nil {
+		t.Fatalf("Close: %v", err)
 	}
-	if _, err := Save(nil); err == nil {
-		t.Fatal("Save(nil): want error, got nil")
+	if err := w.Close("normal"); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+	before, _ := os.ReadFile(w.Path())
+
+	w.AppendEntry("assistant", "after close", time.Time{})
+	if err := w.Flush(); err != nil {
+		t.Fatalf("Flush after Close: %v", err)
+	}
+	after, _ := os.ReadFile(w.Path())
+	if !bytes.Equal(before, after) {
+		t.Fatal("writing after Close changed the log")
+	}
+	if bytes.Count(after, []byte(`"type":"end"`)) != 1 {
+		t.Fatal("end record written more or less than once")
 	}
 }
 
-func TestListReturnsNewestFirstAndSkipsJunk(t *testing.T) {
+func TestConcurrentAppendAndFlush(t *testing.T) {
 	isolateHome(t)
-	proj := "/tmp/proj"
+	w := newTestWriter("concurrent")
+	w.Arm()
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 25 {
+				w.AppendEntry("assistant", strings.Repeat("x", i+1), time.Time{})
+				if err := w.Flush(); err != nil {
+					t.Errorf("Flush: %v", err)
+				}
+			}
+		}()
+	}
+	wg.Wait()
 
-	older := &State{ID: "older", ProjectPath: proj}
-	if _, err := Save(older); err != nil {
-		t.Fatalf("Save older: %v", err)
+	s, err := Load(w.Path())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
 	}
-	// Save() stamps UpdatedAt with time.Now(); force a gap the sort can see.
-	older.UpdatedAt = time.Now().Add(-time.Hour)
-	data, _ := json.Marshal(older)
-	if err := os.WriteFile(Path(proj, "older"), data, 0o600); err != nil {
-		t.Fatalf("rewrite older: %v", err)
+	if len(s.Entries) != 8*25 {
+		t.Fatalf("got %d entries, want %d", len(s.Entries), 8*25)
 	}
+}
 
-	if _, err := Save(&State{ID: "newer", ProjectPath: proj}); err != nil {
-		t.Fatalf("Save newer: %v", err)
+func TestListSummarizesNewestFirstAndSkipsJunk(t *testing.T) {
+	isolateHome(t)
+	for _, id := range []string{"older", "newer"} {
+		w := newTestWriter(id)
+		w.Arm()
+		w.AppendEntry("assistant", "hi", time.Time{})
+		if err := w.Close("normal"); err != nil {
+			t.Fatalf("Close %s: %v", id, err)
+		}
 	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(Path("/tmp/proj", "older"), old, old); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+	dir := Dir("/tmp/proj")
+	os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("ignored"), 0o600)
+	os.WriteFile(filepath.Join(dir, "old-format.json"), []byte("{}"), 0o600)
 
-	dir := Dir(proj)
-	if err := os.WriteFile(filepath.Join(dir, "broken"+Ext), []byte("{not json"), 0o600); err != nil {
-		t.Fatalf("write broken: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("ignored"), 0o600); err != nil {
-		t.Fatalf("write notes: %v", err)
-	}
-
-	list, err := List(proj)
+	list, err := List("/tmp/proj")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -181,6 +319,9 @@ func TestListReturnsNewestFirstAndSkipsJunk(t *testing.T) {
 	}
 	if list[0].ID != "newer" || list[1].ID != "older" {
 		t.Fatalf("order = %q, %q; want newer, older", list[0].ID, list[1].ID)
+	}
+	if list[0].Model != "m1" || list[0].ProjectPath != "/tmp/proj" || list[0].CreatedAt.IsZero() {
+		t.Fatalf("summary not read from meta: %+v", list[0])
 	}
 }
 
@@ -192,22 +333,5 @@ func TestListOnMissingDirIsEmpty(t *testing.T) {
 	}
 	if len(list) != 0 {
 		t.Fatalf("got %d sessions, want 0", len(list))
-	}
-}
-
-func TestSaveLeavesNoTempFilesBehind(t *testing.T) {
-	isolateHome(t)
-	path, err := Save(&State{ID: "clean", ProjectPath: "/tmp/proj"})
-	if err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-	entries, err := os.ReadDir(filepath.Dir(path))
-	if err != nil {
-		t.Fatalf("ReadDir: %v", err)
-	}
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".tmp") {
-			t.Fatalf("temp file left behind: %s", e.Name())
-		}
 	}
 }

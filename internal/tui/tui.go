@@ -14,6 +14,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"github.com/eswar-7116/agent-gopher/internal/agent"
+	"github.com/eswar-7116/agent-gopher/internal/session"
 	"github.com/eswar-7116/agent-gopher/internal/tools"
 )
 
@@ -30,10 +31,12 @@ type Model struct {
 	IsStreaming bool
 	histIdx     int
 
-	sessionID   string
-	projectPath string
-	startedAt   time.Time
-	saveFailed  bool
+	log            *session.Writer
+	open           bool      // last entry is an assistant reply still streaming
+	openAt         time.Time // when that reply started
+	flushMu        sync.Mutex
+	loggedMessages int // agent messages already queued to the log
+	saveFailed     bool
 
 	running bool
 	cancel  context.CancelFunc
@@ -66,15 +69,13 @@ func Run(ag *agent.Agent) error {
 	vp.MouseWheelEnabled = false
 
 	m := &Model{
-		agent:       ag,
-		input:       ti,
-		spinner:     sp,
-		viewport:    vp,
-		sessionID:   newSessionID(),
-		projectPath: workingDir(),
-		startedAt:   time.Now(),
+		agent:    ag,
+		input:    ti,
+		spinner:  sp,
+		viewport: vp,
+		log:      newSessionLog(ag),
 	}
-	m.entries = append(m.entries, entry{roleInfo, "Welcome to Agent Gopher. Enter sends · PgUp/PgDn scroll · Esc cancels a running task · Ctrl+C or /exit quits."})
+	m.add(roleInfo, "Welcome to Agent Gopher. Enter sends · PgUp/PgDn scroll · Esc cancels a running task · Ctrl+C or /exit quits.")
 
 	// Lets a signal handler save the chat state
 	setActive(m)
@@ -95,7 +96,7 @@ func Run(ag *agent.Agent) error {
 
 	_, err := p.Run()
 
-	if path, saveErr := m.saveSession(); saveErr != nil {
+	if path, saveErr := m.closeSession(); saveErr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to save chat state: %v\n", saveErr)
 	} else if path != "" {
 		fmt.Printf("Chat state saved to %s\n", path)

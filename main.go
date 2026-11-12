@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"slices"
 	"syscall"
 
 	"github.com/eswar-7116/agent-gopher/internal/agent"
@@ -19,20 +18,6 @@ import (
 )
 
 func main() {
-	debug := slices.Contains(os.Args[1:], "--debug")
-
-	var debugLogger *log.Logger
-	if debug {
-		f, err := os.OpenFile("agent-gopher-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-		if err != nil {
-			log.Fatalf("failed to open debug log: %v", err)
-		}
-		defer f.Close()
-		debugLogger = log.New(f, "DEBUG: ", log.Ltime)
-	} else {
-		debugLogger = log.New(io.Discard, "", 0)
-	}
-
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 	go func() {
@@ -54,7 +39,6 @@ func main() {
 			log.Printf("Warning: failed to connect to MCP server %q: %v\n", cfg.MCPServers[i].Name, err)
 			continue
 		}
-		debugLogger.Printf("Connected to MCP server %q (%d tools)\n", server.Name, len(server.Tools))
 		mcpServers = append(mcpServers, server)
 	}
 
@@ -71,7 +55,7 @@ func main() {
 		PermissiveShell: cfg.PermissiveShell,
 		TavilyAPIKey:    cfg.TavilyAPIKey,
 		MCPServers:      mcpServers,
-		Logger:          debugLogger,
+		Logger:          log.New(io.Discard, "", 0),
 		WhitelistedCmds: cfg.WhitelistedCmds,
 		OnWhitelist:     onWhitelist,
 	})
@@ -84,7 +68,7 @@ func main() {
 	cleanup()
 }
 
-// Persists the chat state of the running TUI, if there is one.
+// Persists the chat state of the running TUI
 func saveChatState() {
 	path, err := tui.SaveActiveSession()
 	switch {

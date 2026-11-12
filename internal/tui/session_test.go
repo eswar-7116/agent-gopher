@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bytes"
 	"io"
 	"log"
 	"os"
@@ -28,7 +29,20 @@ func testModel(t *testing.T) *Model {
 		Model:  "test-model",
 		Logger: log.New(io.Discard, "", 0),
 	})
-	return &Model{agent: ag, sessionID: "testsession0001", projectPath: "/tmp/proj"}
+	m := &Model{agent: ag}
+	m.log = session.NewWriter(&session.State{ID: "testsession0001", ProjectPath: "/tmp/proj", Model: ag.Model()})
+	return m
+}
+
+// Streams a reply the way Update does
+func streamReply(m *Model, deltas ...string) {
+	for i, d := range deltas {
+		if i == 0 {
+			m.add(roleAssistant, d)
+		} else {
+			m.appendToLast(d)
+		}
+	}
 }
 
 func TestRoleNamesCoverEveryRole(t *testing.T) {
@@ -39,131 +53,40 @@ func TestRoleNamesCoverEveryRole(t *testing.T) {
 	}
 }
 
-func TestSnapshotCapturesTranscriptAndHistory(t *testing.T) {
-	isolateHome(t)
-	m := testModel(t)
-	m.entries = []entry{
-		{roleInfo, "welcome"},
-		{roleUser, "hello"},
-		{roleAssistant, "hi there"},
-		{roleTool, "read_file {}"},
-		{roleError, "boom"},
-	}
-	m.history = []string{"hello"}
-
-	s := m.snapshot()
-	if s.ID != "testsession0001" || s.ProjectPath != "/tmp/proj" {
-		t.Fatalf("identity not captured: %+v", s)
-	}
-	if s.Model != "test-model" || s.Mode != "normal" {
-		t.Fatalf("model/mode = %q/%q", s.Model, s.Mode)
-	}
-	wantRoles := []string{"info", "user", "assistant", "tool", "error"}
-	if len(s.Entries) != len(wantRoles) {
-		t.Fatalf("got %d entries, want %d", len(s.Entries), len(wantRoles))
-	}
-	for i, want := range wantRoles {
-		if s.Entries[i].Role != want {
-			t.Fatalf("entry %d role = %q, want %q", i, s.Entries[i].Role, want)
-		}
-	}
-	if s.Entries[2].Content != "hi there" {
-		t.Fatalf("content = %q", s.Entries[2].Content)
-	}
-	if len(s.InputHistory) != 1 || s.InputHistory[0] != "hello" {
-		t.Fatalf("input history = %+v", s.InputHistory)
-	}
-}
-
-func TestSnapshotCopiesSoLaterAppendsDoNotLeak(t *testing.T) {
-	isolateHome(t)
-	m := testModel(t)
-	m.entries = []entry{{roleUser, "one"}}
-	m.history = []string{"one"}
-
-	s := m.snapshot()
-	m.add(roleUser, "two")
-	m.history = append(m.history, "two")
-
-	if len(s.Entries) != 1 || len(s.InputHistory) != 1 {
-		t.Fatalf("snapshot aliased live state: %+v", s)
-	}
-}
-
-func TestSaveSessionWritesUnderProjectDir(t *testing.T) {
-	home := isolateHome(t)
-	m := testModel(t)
-	m.entries = []entry{{roleUser, "hello"}, {roleAssistant, "hi back"}}
-	m.history = []string{"hello"}
-
-	path, err := m.saveSession()
-	if err != nil {
-		t.Fatalf("saveSession: %v", err)
-	}
-	want := filepath.Join(home, session.RootDirName, "tmp-proj", "testsession0001"+session.Ext)
-	if path != want {
-		t.Fatalf("saved to %q, want %q", path, want)
-	}
-
-	got, err := session.Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(got.Entries) != 2 || got.Entries[0].Content != "hello" {
-		t.Fatalf("saved entries = %+v", got.Entries)
-	}
-}
-
-func TestSaveSessionSkipsSessionsTheAgentNeverRepliedIn(t *testing.T) {
+func TestNothingIsWrittenUntilTheAgentReplies(t *testing.T) {
 	cases := []struct {
-		name    string
-		entries []entry
-		history []string
+		name string
+		run  func(m *Model)
 	}{
-		{
-			name:    "only the opening banner",
-			entries: []entry{{roleInfo, "welcome"}},
-		},
-		{
-			name: "only slash commands",
-			entries: []entry{
-				{roleInfo, "welcome"},
-				{roleInfo, "Switched to plan mode."},
-				{roleInfo, "No memories yet."},
-			},
-			history: []string{"/plan", "/gopher memory"},
-		},
-		{
-			name: "asked, but the reply failed",
-			entries: []entry{
-				{roleInfo, "welcome"},
-				{roleUser, "hello"},
-				{roleError, "chat completion failed"},
-			},
-			history: []string{"hello"},
-		},
-		{
-			name: "tool ran but the agent never spoke",
-			entries: []entry{
-				{roleUser, "read the file"},
-				{roleTool, "read_file {}"},
-				{roleError, "chat completion failed"},
-			},
-			history: []string{"read the file"},
-		},
+		{"only the opening banner", func(m *Model) {
+			m.add(roleInfo, "welcome")
+		}},
+		{"only slash commands", func(m *Model) {
+			m.add(roleInfo, "welcome")
+			m.log.AppendInput("/plan")
+			m.add(roleInfo, "Switched to plan mode.")
+		}},
+		{"asked, but the reply failed", func(m *Model) {
+			m.add(roleUser, "hello")
+			m.add(roleError, "chat completion failed")
+		}},
+		{"tool ran but the agent never spoke", func(m *Model) {
+			m.add(roleUser, "read the file")
+			m.add(roleTool, "read_file {}")
+			m.add(roleError, "chat completion failed")
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			home := isolateHome(t)
 			m := testModel(t)
-			m.entries, m.history = tc.entries, tc.history
+			tc.run(m)
 
-			path, err := m.saveSession()
-			if err != nil {
-				t.Fatalf("saveSession: %v", err)
+			if path, err := m.flushSession(); err != nil || path != "" {
+				t.Fatalf("flushSession = (%q, %v), want nothing written", path, err)
 			}
-			if path != "" {
-				t.Fatalf("wrote %q, want no file", path)
+			if path, err := m.closeSession(); err != nil || path != "" {
+				t.Fatalf("closeSession = (%q, %v), want nothing written", path, err)
 			}
 			if _, err := os.Stat(filepath.Join(home, session.RootDirName)); !os.IsNotExist(err) {
 				t.Fatalf("session root was created anyway: %v", err)
@@ -172,29 +95,118 @@ func TestSaveSessionSkipsSessionsTheAgentNeverRepliedIn(t *testing.T) {
 	}
 }
 
-func TestSaveSessionWritesOnceTheAgentHasReplied(t *testing.T) {
-	isolateHome(t)
+func TestReplyWritesTheWholeSessionIncludingWhatCameBefore(t *testing.T) {
+	home := isolateHome(t)
 	m := testModel(t)
-	m.entries = []entry{{roleInfo, "welcome"}, {roleUser, "hello"}, {roleAssistant, "hi"}}
+	m.add(roleInfo, "welcome")
+	m.add(roleUser, "hello")
+	streamReply(m, "hi", " there")
 
-	path, err := m.saveSession()
+	path, err := m.flushSession()
 	if err != nil {
-		t.Fatalf("saveSession: %v", err)
+		t.Fatalf("flushSession: %v", err)
 	}
-	if path == "" {
-		t.Fatal("nothing written for a conversation with an assistant reply")
+	want := filepath.Join(home, session.RootDirName, "tmp-proj", "testsession0001"+session.Ext)
+	if path != want {
+		t.Fatalf("wrote %q, want %q", path, want)
+	}
+
+	s, err := session.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	var roles []string
+	for _, e := range s.Entries {
+		roles = append(roles, e.Role)
+	}
+	if got := len(roles); got != 3 || roles[0] != "info" || roles[1] != "user" || roles[2] != "assistant" {
+		t.Fatalf("roles = %v, want info, user, assistant", roles)
+	}
+	if s.Entries[2].Content != "hi there" {
+		t.Fatalf("streamed reply logged as %q, want the whole reply", s.Entries[2].Content)
 	}
 }
 
-func TestSaveSessionSkipsWhenNoIDCouldBeGenerated(t *testing.T) {
+func TestStreamedReplyIsLoggedOnceWhenSealedByTheNextEntry(t *testing.T) {
 	isolateHome(t)
 	m := testModel(t)
-	m.sessionID = ""
-	m.entries = []entry{{roleUser, "hello"}, {roleAssistant, "hi"}}
+	m.add(roleUser, "do it")
+	streamReply(m, "Running ", "the tool.")
+	m.add(roleTool, "shell_cmd ls") // seals the reply
+	streamReply(m, "Done.")
 
-	path, err := m.saveSession()
-	if err != nil || path != "" {
-		t.Fatalf("saveSession = (%q, %v), want (\"\", nil)", path, err)
+	path, err := m.closeSession()
+	if err != nil {
+		t.Fatalf("closeSession: %v", err)
+	}
+	s, err := session.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	var got []string
+	for _, e := range s.Entries {
+		got = append(got, e.Role+":"+e.Content)
+	}
+	want := []string{"user:do it", "assistant:Running the tool.", "tool:shell_cmd ls", "assistant:Done."}
+	if len(got) != len(want) {
+		t.Fatalf("entries = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("entries = %q, want %q", got, want)
+		}
+	}
+	if !s.Complete {
+		t.Fatal("Complete = false after closeSession")
+	}
+}
+
+func TestRepeatedFlushesDoNotDuplicate(t *testing.T) {
+	isolateHome(t)
+	m := testModel(t)
+	m.add(roleUser, "one")
+	streamReply(m, "reply one")
+	path, err := m.flushSession()
+	if err != nil {
+		t.Fatalf("flush 1: %v", err)
+	}
+	before, _ := os.ReadFile(path)
+
+	if _, err := m.flushSession(); err != nil {
+		t.Fatalf("flush 2: %v", err)
+	}
+	same, _ := os.ReadFile(path)
+	if !bytes.Equal(before, same) {
+		t.Fatal("a flush with nothing new changed the log")
+	}
+
+	m.add(roleUser, "two")
+	streamReply(m, "reply two")
+	if _, err := m.flushSession(); err != nil {
+		t.Fatalf("flush 3: %v", err)
+	}
+	after, _ := os.ReadFile(path)
+	if !bytes.HasPrefix(after, before) {
+		t.Fatal("a later flush rewrote earlier lines")
+	}
+
+	s, _ := session.Load(path)
+	if len(s.Entries) != 4 {
+		t.Fatalf("got %d entries, want 4", len(s.Entries))
+	}
+}
+
+func TestNilLogIsANoOp(t *testing.T) {
+	isolateHome(t)
+	m := testModel(t)
+	m.log = nil
+	m.add(roleUser, "hello")
+	streamReply(m, "hi")
+	if path, err := m.flushSession(); err != nil || path != "" {
+		t.Fatalf("flushSession = (%q, %v)", path, err)
+	}
+	if path, err := m.closeSession(); err != nil || path != "" {
+		t.Fatalf("closeSession = (%q, %v)", path, err)
 	}
 }
 
@@ -206,10 +218,11 @@ func TestSaveActiveSessionWithNoRunningTUI(t *testing.T) {
 	}
 }
 
-func TestSaveActiveSessionSavesTheRegisteredModel(t *testing.T) {
+func TestSaveActiveSessionFlushesMidReply(t *testing.T) {
 	isolateHome(t)
 	m := testModel(t)
-	m.entries = []entry{{roleUser, "hello"}, {roleAssistant, "hi"}}
+	m.add(roleUser, "hello")
+	streamReply(m, "partial ans") // killed while still streaming
 	setActive(m)
 	t.Cleanup(func() { setActive(nil) })
 
@@ -217,20 +230,14 @@ func TestSaveActiveSessionSavesTheRegisteredModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveActiveSession: %v", err)
 	}
-	if path == "" {
-		t.Fatal("SaveActiveSession wrote nothing")
-	}
-	got, err := session.Load(path)
+	s, err := session.Load(path)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got.ID != m.sessionID {
-		t.Fatalf("saved id = %q, want %q", got.ID, m.sessionID)
+	if len(s.Entries) != 2 || s.Entries[1].Content != "partial ans" {
+		t.Fatalf("entries = %+v, want the partial reply kept", s.Entries)
 	}
-}
-
-func TestNewSessionIDIsUsable(t *testing.T) {
-	if id := newSessionID(); id == "" {
-		t.Fatal("newSessionID returned an empty id")
+	if s.Complete {
+		t.Fatal("Complete = true for a session that was not closed")
 	}
 }
