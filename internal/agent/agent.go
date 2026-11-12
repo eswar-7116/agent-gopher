@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"maps"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/eswar-7116/agent-gopher/internal/mcpclient"
+	"github.com/eswar-7116/agent-gopher/internal/skills"
 	"github.com/eswar-7116/agent-gopher/internal/tools"
 	"github.com/openai/openai-go/v3"
 )
@@ -66,14 +67,30 @@ func NewAgent(opts AgentOptions) *Agent {
 		onToolCall:      opts.OnToolCall,
 	}
 
+	var promptParts []string
 	if wd, err := os.Getwd(); err == nil {
-		a.systemPrompt = loadAgentsMD(wd, opts.Logger)
+		if p := loadAgentsMD(wd, opts.Logger); p != "" {
+			promptParts = append(promptParts, p)
+		}
 	}
 
+	// Registered before the sub-agent registry is copied so sub-agents can use skills too.
+	if dir := skills.Dir(); dir != "" {
+		if loaded := skills.Load(dir, opts.Logger); len(loaded) > 0 {
+			promptParts = append(promptParts, skills.Prompt(loaded))
+			t := skills.NewTool(loaded)
+			a.registry[t.Name()] = t
+			a.toolDefs = append(a.toolDefs, t.Definition())
+		}
+	}
+	a.systemPrompt = strings.Join(promptParts, "\n\n")
+
 	// Sub-agents get every tool registered except delegate_task
-	subRegistry := make(map[string]tools.Tool, len(registry))
-	maps.Copy(subRegistry, registry)
-	subDefs := append([]openai.ChatCompletionToolUnionParam(nil), defs...)
+	subRegistry := make(map[string]tools.Tool, len(a.registry))
+	for name, t := range a.registry {
+		subRegistry[name] = t
+	}
+	subDefs := append([]openai.ChatCompletionToolUnionParam(nil), a.toolDefs...)
 
 	d := delegateTool{parent: a, registry: subRegistry, defs: subDefs}
 	a.registry[d.Name()] = d

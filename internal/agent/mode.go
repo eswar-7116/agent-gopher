@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/eswar-7116/agent-gopher/internal/skills"
 	"github.com/openai/openai-go/v3"
 )
 
@@ -44,6 +45,7 @@ var planModeTools = map[string]bool{
 	"read_logs":      true,
 	"web_search":     true,
 	delegateToolName: true,
+	skills.ToolName:  true,
 }
 
 func toolAllowed(mode Mode, name string) bool {
