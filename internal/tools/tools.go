@@ -49,7 +49,7 @@ func Definitions(permissiveShell bool, tavilyAPIKey string, whitelistedCmds []st
 	return defs
 }
 
-func newFunctionTool(name, description string, params openai.FunctionParameters) openai.ChatCompletionToolUnionParam {
+func NewFunctionTool(name, description string, params openai.FunctionParameters) openai.ChatCompletionToolUnionParam {
 	return openai.ChatCompletionFunctionTool(shared.FunctionDefinitionParam{
 		Name:        name,
 		Description: openai.String(description),

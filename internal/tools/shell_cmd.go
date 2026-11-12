@@ -63,7 +63,7 @@ func (ShellCmdTool) Name() string {
 }
 
 func (s ShellCmdTool) Definition() openai.ChatCompletionToolUnionParam {
-	return newFunctionTool(s.Name(), "Execute shell commands", map[string]any{
+	return NewFunctionTool(s.Name(), "Execute shell commands", map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"cmd": map[string]string{

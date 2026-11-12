@@ -17,7 +17,7 @@ func (ReadLogsTool) Name() string {
 }
 
 func (r ReadLogsTool) Definition() openai.ChatCompletionToolUnionParam {
-	return newFunctionTool(r.Name(), "Read logs from a background process log file", map[string]any{
+	return NewFunctionTool(r.Name(), "Read logs from a background process log file", map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"log_file": map[string]string{

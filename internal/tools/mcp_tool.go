@@ -39,7 +39,7 @@ func (m MCPTool) Definition() openai.ChatCompletionToolUnionParam {
 	if description == "" {
 		description = fmt.Sprintf("MCP tool %q from server %q", m.tool.Name, m.server.Name)
 	}
-	return newFunctionTool(m.toolName, description, params)
+	return NewFunctionTool(m.toolName, description, params)
 }
 
 func (m MCPTool) Execute(ctx context.Context, args map[string]any) (any, error) {
@@ -63,7 +63,6 @@ func (m MCPTool) inputSchemaToParams() openai.FunctionParameters {
 	if schema, ok := m.tool.InputSchema.(map[string]any); ok {
 		return schema
 	}
-
 
 	data, err := json.Marshal(m.tool.InputSchema)
 	if err != nil {

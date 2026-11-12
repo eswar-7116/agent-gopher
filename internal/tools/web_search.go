@@ -35,7 +35,7 @@ func (WebSearchTool) Name() string {
 }
 
 func (w WebSearchTool) Definition() openai.ChatCompletionToolUnionParam {
-	return newFunctionTool(w.Name(), "Search the web for current information. Returns results with titles, URLs, content snippets, and an optional AI-generated answer.", map[string]any{
+	return NewFunctionTool(w.Name(), "Search the web for current information. Returns results with titles, URLs, content snippets, and an optional AI-generated answer.", map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"query": map[string]string{

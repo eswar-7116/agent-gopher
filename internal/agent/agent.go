@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"slices"
 
 	"github.com/eswar-7116/agent-gopher/internal/mcpclient"
@@ -23,6 +24,8 @@ type Agent struct {
 	logger          *log.Logger
 	onToolCall      func(name, arguments string)
 	onText          func(text string)
+	systemPrompt    string
+	maxSteps        int // max LLM round-trips per Run; 0 means unlimited
 }
 
 type AgentOptions struct {
@@ -50,7 +53,7 @@ func NewAgent(opts AgentOptions) *Agent {
 		}
 	}
 
-	return &Agent{
+	a := &Agent{
 		client:          opts.Client,
 		registry:        registry,
 		toolDefs:        defs,
@@ -60,6 +63,17 @@ func NewAgent(opts AgentOptions) *Agent {
 		logger:          opts.Logger,
 		onToolCall:      opts.OnToolCall,
 	}
+
+	// Sub-agents get every tool registered except delegate_task
+	subRegistry := make(map[string]tools.Tool, len(registry))
+	maps.Copy(subRegistry, registry)
+	subDefs := append([]openai.ChatCompletionToolUnionParam(nil), defs...)
+
+	d := delegateTool{parent: a, registry: subRegistry, defs: subDefs}
+	a.registry[d.Name()] = d
+	a.toolDefs = append(a.toolDefs, d.Definition())
+
+	return a
 }
 
 // Sets a callback for tool calls
@@ -73,6 +87,9 @@ func (a *Agent) SetTextCallback(fn func(text string)) {
 }
 
 func (a *Agent) Run(ctx context.Context, userPrompt string) error {
+	if len(a.messages) == 0 && a.systemPrompt != "" {
+		a.messages = append(a.messages, openai.SystemMessage(a.systemPrompt))
+	}
 	a.messages = append(a.messages, openai.UserMessage(userPrompt))
 
 	params := openai.ChatCompletionNewParams{
@@ -81,7 +98,10 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 		Tools:    a.toolDefs,
 	}
 
-	for {
+	for step := 0; ; step++ {
+		if a.maxSteps > 0 && step >= a.maxSteps {
+			return fmt.Errorf("exceeded %d steps without finishing", a.maxSteps)
+		}
 		a.logger.Println("Sending messages to LLM...")
 		params.Messages = a.messages
 		resp, err := a.client.Chat.Completions.New(ctx, params)

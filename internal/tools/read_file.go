@@ -16,7 +16,7 @@ func (ReadFileTool) Name() string {
 }
 
 func (r ReadFileTool) Definition() openai.ChatCompletionToolUnionParam {
-	return newFunctionTool(r.Name(), "Get the contents of the given file", map[string]any{
+	return NewFunctionTool(r.Name(), "Get the contents of the given file", map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"filepath": map[string]string{

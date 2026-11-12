@@ -14,7 +14,7 @@ func (KillProcessTool) Name() string {
 }
 
 func (k KillProcessTool) Definition() openai.ChatCompletionToolUnionParam {
-	return newFunctionTool(k.Name(), "Kill a background process started by shell_cmd", map[string]any{
+	return NewFunctionTool(k.Name(), "Kill a background process started by shell_cmd", map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"id": map[string]string{
