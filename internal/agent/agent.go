@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"slices"
 
 	"github.com/eswar-7116/agent-gopher/internal/mcpclient"
 	"github.com/eswar-7116/agent-gopher/internal/tools"
@@ -20,6 +21,8 @@ type Agent struct {
 	permissiveShell bool
 	tavilyAPIKey    string
 	logger          *log.Logger
+	onToolCall      func(name, arguments string)
+	onText          func(text string)
 }
 
 type AgentOptions struct {
@@ -31,6 +34,7 @@ type AgentOptions struct {
 	Logger          *log.Logger
 	WhitelistedCmds []string
 	OnWhitelist     func(string)
+	OnToolCall      func(name, arguments string)
 }
 
 func NewAgent(opts AgentOptions) *Agent {
@@ -54,7 +58,18 @@ func NewAgent(opts AgentOptions) *Agent {
 		permissiveShell: opts.PermissiveShell,
 		tavilyAPIKey:    opts.TavilyAPIKey,
 		logger:          opts.Logger,
+		onToolCall:      opts.OnToolCall,
 	}
+}
+
+// Sets a callback for tool calls
+func (a *Agent) SetToolCallCallback(fn func(name, arguments string)) {
+	a.onToolCall = fn
+}
+
+// Sets a callback for assistant text
+func (a *Agent) SetTextCallback(fn func(text string)) {
+	a.onText = fn
 }
 
 func (a *Agent) Run(ctx context.Context, userPrompt string) error {
@@ -77,16 +92,25 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 		msg := resp.Choices[0].Message
 		a.messages = append(a.messages, msg.ToParam())
 
+		if msg.Content != "" && a.onText != nil {
+			a.onText(msg.Content)
+		}
+
 		if len(msg.ToolCalls) == 0 {
-			fmt.Println("\nAgent:", msg.Content)
 			break
 		}
 
 		for _, toolCall := range msg.ToolCalls {
 			name := toolCall.Function.Name
+			arguments := toolCall.Function.Arguments
 			a.logger.Printf("Executing tool: %s\n", name)
 
-			toolResult := a.executeToolCall(ctx, name, toolCall.Function.Arguments)
+			// Notify TUI about tool call
+			if a.onToolCall != nil {
+				a.onToolCall(name, arguments)
+			}
+
+			toolResult := a.executeToolCall(ctx, name, arguments)
 			a.messages = append(a.messages, openai.ToolMessage(toolResult, toolCall.ID))
 		}
 	}
@@ -124,4 +148,23 @@ func serialize(v any) string {
 		return fmt.Sprintf("%v", v)
 	}
 	return string(b)
+}
+
+// Returns a copy of the conversation history
+func (a *Agent) GetMessages() []openai.ChatCompletionMessageParamUnion {
+	messages := make([]openai.ChatCompletionMessageParamUnion, len(a.messages))
+	copy(messages, a.messages)
+	return messages
+}
+
+// Returns the content of the last assistant message
+func (a *Agent) GetLastAssistantMessage() string {
+	for _, msg := range slices.Backward(a.messages) {
+		if msg.OfAssistant != nil {
+			if msg.OfAssistant.Content.OfString.Valid() {
+				return msg.OfAssistant.Content.OfString.Value
+			}
+		}
+	}
+	return ""
 }

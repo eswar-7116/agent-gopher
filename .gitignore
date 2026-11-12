@@ -36,3 +36,6 @@ go.work.sum
 
 # Build output
 /agent-gopher
+
+# Log files
+/*.log

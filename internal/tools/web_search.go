@@ -104,8 +104,6 @@ func (w WebSearchTool) Execute(ctx context.Context, args map[string]any) (any, e
 		return nil, fmt.Errorf("missing or invalid 'query' argument")
 	}
 
-	fmt.Printf("web_search: searching for %q\n", query)
-
 	maxResults := 5
 	if v, ok := args["max_results"]; ok {
 		switch n := v.(type) {

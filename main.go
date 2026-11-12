@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -9,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"slices"
-	"strings"
 	"syscall"
 
 	"github.com/eswar-7116/agent-gopher/internal/agent"
@@ -17,6 +15,7 @@ import (
 	"github.com/eswar-7116/agent-gopher/internal/llm"
 	"github.com/eswar-7116/agent-gopher/internal/mcpclient"
 	"github.com/eswar-7116/agent-gopher/internal/tools"
+	"github.com/eswar-7116/agent-gopher/internal/tui"
 )
 
 func main() {
@@ -24,7 +23,12 @@ func main() {
 
 	var debugLogger *log.Logger
 	if debug {
-		debugLogger = log.New(os.Stderr, "DEBUG: ", log.Ltime)
+		f, err := os.OpenFile("agent-gopher-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			log.Fatalf("failed to open debug log: %v", err)
+		}
+		defer f.Close()
+		debugLogger = log.New(f, "DEBUG: ", log.Ltime)
 	} else {
 		debugLogger = log.New(io.Discard, "", 0)
 	}
@@ -71,31 +75,9 @@ func main() {
 		OnWhitelist:     onWhitelist,
 	})
 
-	scanner := bufio.NewScanner(os.Stdin)
-	for {
-		fmt.Print("\nUser: ")
-		os.Stdout.Sync()
-
-		if !scanner.Scan() {
-			break
-		}
-
-		input := strings.TrimSpace(scanner.Text())
-		if input == "" {
-			continue
-		}
-		if input == "/exit" || input == "/quit" {
-			break
-		}
-
-		ctx := context.Background()
-		if err := agentGopher.Run(ctx, input); err != nil {
-			fmt.Printf("Error: %v\n", err)
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
+	if err := tui.Run(agentGopher); err != nil {
+		fmt.Printf("Error running TUI: %v\n", err)
+		os.Exit(1)
 	}
 
 	cleanup()

@@ -29,6 +29,9 @@ var (
 	BgProcesses       = map[string]*BackgroundProcess{}
 	BgProcessesMu     sync.Mutex
 	UseStdinForPrompt = false // used for testing
+
+	// It returns "y", "a" or "n" plus an optional alternative instruction on denial.
+	PromptPermission func(cmd string, background bool) (choice, alt string)
 )
 
 var subcommandTools = map[string]bool{
@@ -135,6 +138,26 @@ func (s ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, er
 		return runForeground(ctx, cmdStr, shell)
 	}
 
+	if PromptPermission != nil {
+		choice, alt := PromptPermission(cmdStr, background)
+		switch choice {
+		case "a":
+			if s.OnWhitelist != nil {
+				s.OnWhitelist(extractPrefix(cmdStr))
+			}
+		case "y":
+		default:
+			if alt != "" {
+				return nil, fmt.Errorf("user denied permission for command(%s). The following instruction was provided by the user as an alternative: %s", cmdStr, alt)
+			}
+			return nil, fmt.Errorf("user denied permission for command(%s)", cmdStr)
+		}
+		if background {
+			return runBackground(cmdStr, shell)
+		}
+		return runForeground(ctx, cmdStr, shell)
+	}
+
 	// Ask user permission
 	var reader io.Reader
 	if UseStdinForPrompt {
@@ -196,8 +219,8 @@ func runForeground(ctx context.Context, cmdStr, shell string) (any, error) {
 	}
 
 	var buf bytes.Buffer
-	cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
-	cmd.Stderr = io.MultiWriter(os.Stderr, &buf)
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
 
 	err := cmd.Run()
 	return buf.String(), err
