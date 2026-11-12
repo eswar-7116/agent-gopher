@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"maps"
+	"os"
 	"slices"
 
 	"github.com/eswar-7116/agent-gopher/internal/mcpclient"
@@ -62,6 +63,10 @@ func NewAgent(opts AgentOptions) *Agent {
 		tavilyAPIKey:    opts.TavilyAPIKey,
 		logger:          opts.Logger,
 		onToolCall:      opts.OnToolCall,
+	}
+
+	if wd, err := os.Getwd(); err == nil {
+		a.systemPrompt = loadAgentsMD(wd, opts.Logger)
 	}
 
 	// Sub-agents get every tool registered except delegate_task
