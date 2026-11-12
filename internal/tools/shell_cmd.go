@@ -7,11 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"path"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/openai/openai-go/v3"
@@ -63,7 +62,7 @@ func (ShellCmdTool) Name() string {
 }
 
 func (s ShellCmdTool) Definition() openai.ChatCompletionToolUnionParam {
-	return NewFunctionTool(s.Name(), "Execute shell commands", map[string]any{
+	return NewFunctionTool(s.Name(), fmt.Sprintf("Execute shell commands. Commands run on %s via %s, so use syntax valid for that shell.", runtime.GOOS, shellName()), map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"cmd": map[string]string{
@@ -126,16 +125,11 @@ func (s ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, er
 	}
 	background, _ := args["background"].(bool)
 
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/sh"
-	}
-
 	if s.Permissive || isWhitelisted(cmdStr, s.WhitelistedCmds) {
 		if background {
-			return runBackground(cmdStr, shell)
+			return runBackground(cmdStr)
 		}
-		return runForeground(ctx, cmdStr, shell)
+		return runForeground(ctx, cmdStr)
 	}
 
 	if PromptPermission != nil {
@@ -153,9 +147,9 @@ func (s ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, er
 			return nil, fmt.Errorf("user denied permission for command(%s)", cmdStr)
 		}
 		if background {
-			return runBackground(cmdStr, shell)
+			return runBackground(cmdStr)
 		}
-		return runForeground(ctx, cmdStr, shell)
+		return runForeground(ctx, cmdStr)
 	}
 
 	// Ask user permission
@@ -163,7 +157,7 @@ func (s ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, er
 	if UseStdinForPrompt {
 		reader = os.Stdin
 	} else {
-		tty, err := os.Open("/dev/tty")
+		tty, err := os.Open(ttyPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open tty: %v", err)
 		}
@@ -188,9 +182,9 @@ func (s ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, er
 			s.OnWhitelist(extractPrefix(cmdStr))
 		}
 		if background {
-			return runBackground(cmdStr, shell)
+			return runBackground(cmdStr)
 		}
-		return runForeground(ctx, cmdStr, shell)
+		return runForeground(ctx, cmdStr)
 	}
 
 	if permission != "y" && permission != "yes" {
@@ -206,17 +200,17 @@ func (s ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, er
 	}
 
 	if background {
-		return runBackground(cmdStr, shell)
+		return runBackground(cmdStr)
 	}
-	return runForeground(ctx, cmdStr, shell)
+	return runForeground(ctx, cmdStr)
 }
 
-func runForeground(ctx context.Context, cmdStr, shell string) (any, error) {
-	cmd := exec.CommandContext(ctx, shell, "-c", cmdStr)
+// Bounds how long Wait blocks on pipes held open by orphaned children.
+const waitDelay = 2 * time.Second
 
-	cmd.Cancel = func() error {
-		return cmd.Process.Kill()
-	}
+func runForeground(ctx context.Context, cmdStr string) (any, error) {
+	cmd := shellCommand(ctx, cmdStr)
+	cmd.WaitDelay = waitDelay
 
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
@@ -226,23 +220,20 @@ func runForeground(ctx context.Context, cmdStr, shell string) (any, error) {
 	return buf.String(), err
 }
 
-func runBackground(cmdStr, shell string) (any, error) {
+func runBackground(cmdStr string) (any, error) {
 	id := fmt.Sprintf("bg_%d", time.Now().UnixNano())
 	logFileName := fmt.Sprintf("agent-gopher-%s.log", id)
-	logFilePath := path.Join(os.TempDir(), logFileName)
+	logFilePath := filepath.Join(os.TempDir(), logFileName)
 	logFile, err := os.Create(logFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create log file: %v", err)
 	}
 
 	bgCtx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(bgCtx, shell, "-c", cmdStr)
+	cmd := shellCommand(bgCtx, cmdStr)
+	detach(cmd)
 
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true, // new process group
-	}
-
-	cmd.Stdin = os.NewFile(0, os.DevNull)
+	// Stdin is left nil so the process reads from the null device
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 
@@ -272,7 +263,7 @@ func runBackground(cmdStr, shell string) (any, error) {
 
 	return map[string]any{
 		"id":       id,
-		"log_file": logFile,
+		"log_file": logFilePath,
 		"message":  fmt.Sprintf("Process started in background. Logs at %s", logFilePath),
 	}, nil
 }

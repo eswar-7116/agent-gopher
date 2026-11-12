@@ -48,7 +48,7 @@ func TestShellCmd_Execute_Success(t *testing.T) {
 	tool := tools.ShellCmdTool{Permissive: true}
 
 	result, err := tool.Execute(t.Context(), map[string]any{
-		"cmd": "echo 'hello world'",
+		"cmd": "echo hello world",
 	})
 	if err != nil {
 		t.Fatalf("expected no error, but got: %v", err)
@@ -106,7 +106,7 @@ func TestShellCmd_WhitelistBypass(t *testing.T) {
 	}
 
 	result, err := tool.Execute(context.Background(), map[string]any{
-		"cmd": "echo 'hello world'",
+		"cmd": "echo hello world",
 	})
 	if err != nil {
 		t.Fatalf("expected no error (should bypass prompt), got: %v", err)
@@ -132,7 +132,7 @@ func TestShellCmd_AlwaysAllow(t *testing.T) {
 	simulateStdin(t, "a\n")
 
 	result, err := tool.Execute(context.Background(), map[string]any{
-		"cmd": "echo 'allowed command'",
+		"cmd": "echo allowed command",
 	})
 
 	if err != nil {
@@ -216,7 +216,7 @@ func TestShellCmd_Execute_PermissionGranted(t *testing.T) {
 	simulateStdin(t, "y\n")
 
 	result, err := tool.Execute(t.Context(), map[string]any{
-		"cmd": "echo 'hello world'",
+		"cmd": "echo hello world",
 	})
 	if err != nil {
 		t.Fatalf("expected no error, but got: %v", err)
@@ -232,7 +232,7 @@ func TestShellCmd_Execute_CommandError(t *testing.T) {
 	tool := tools.ShellCmdTool{Permissive: true}
 
 	_, err := tool.Execute(t.Context(), map[string]any{
-		"cmd": "false",
+		"cmd": "exit 1",
 	})
 
 	if err == nil {
@@ -244,7 +244,7 @@ func TestShellCmd_Execute_Background(t *testing.T) {
 	tool := tools.ShellCmdTool{Permissive: true}
 
 	res, err := tool.Execute(t.Context(), map[string]any{
-		"cmd":        "echo 'background process'",
+		"cmd":        "echo background process",
 		"background": true,
 	})
 	if err != nil {
@@ -261,21 +261,21 @@ func TestShellCmd_Execute_Background(t *testing.T) {
 		t.Errorf("expected valid id, got %v", resMap["id"])
 	}
 
-	logFile, ok := resMap["log_file"].(*os.File)
-	if !ok || logFile == nil {
-		t.Errorf("expected valid *os.File for log_file, got %v", resMap["log_file"])
+	logFile, ok := resMap["log_file"].(string)
+	if !ok || logFile == "" {
+		t.Fatalf("expected log file path, got %v", resMap["log_file"])
 	}
 
 	// Poll until the background process writes output
 	var content []byte
 	success := false
-	for i := 0; i < 5; i++ {
-		content, err = os.ReadFile(logFile.Name())
+	for range 200 {
+		content, err = os.ReadFile(logFile)
 		if err == nil && strings.Contains(string(content), "background process") {
 			success = true
 			break
 		}
-		time.Sleep(1 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	if !success {

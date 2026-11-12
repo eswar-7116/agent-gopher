@@ -1,6 +1,7 @@
 package tools_test
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -20,9 +21,13 @@ func TestKillProcess_Execute(t *testing.T) {
 	shellTool := tools.ShellCmdTool{}
 	simulateStdin(t, "y\n")
 
-	// Start a process that sleeps for 10 seconds
+	// Start a process that runs for about 10 seconds
+	sleepCmd := "sleep 10"
+	if runtime.GOOS == "windows" {
+		sleepCmd = "ping -n 11 127.0.0.1 > NUL"
+	}
 	res, err := shellTool.Execute(t.Context(), map[string]any{
-		"cmd":        "sleep 10",
+		"cmd":        sleepCmd,
 		"background": true,
 	})
 	if err != nil {
@@ -56,13 +61,13 @@ func TestKillProcess_Execute(t *testing.T) {
 
 	// Poll until the background goroutine cleans up the process
 	success := false
-	for i := 0; i < 5; i++ {
+	for range 200 {
 		_, errAgain := killTool.Execute(t.Context(), map[string]any{"id": id})
 		if errAgain != nil && strings.Contains(errAgain.Error(), "no background process found") {
 			success = true
 			break
 		}
-		time.Sleep(1 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 	if !success {
 		t.Errorf("expected process to be removed from registry after kill, but it persisted")
