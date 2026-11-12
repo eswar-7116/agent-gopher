@@ -21,8 +21,12 @@ func isolateHome(t *testing.T) string {
 	return home
 }
 
-func newTestWriter(id string) *Writer {
-	return NewWriter(&State{ID: id, ProjectPath: "/tmp/proj", Model: "m1", Mode: "normal"})
+// Closes the writer on cleanup since Windows cannot remove open files
+func newTestWriter(t *testing.T, id string) *Writer {
+	t.Helper()
+	w := NewWriter(&State{ID: id, ProjectPath: "/tmp/proj", Model: "m1", Mode: "normal"})
+	t.Cleanup(func() { w.Close("normal") })
+	return w
 }
 
 func readLines(t *testing.T, path string) []map[string]any {
@@ -75,7 +79,7 @@ func TestPathUsesNormalizedProjectDirAndJSONL(t *testing.T) {
 
 func TestUnarmedWriterNeverCreatesAFile(t *testing.T) {
 	home := isolateHome(t)
-	w := newTestWriter("unarmed")
+	w := newTestWriter(t, "unarmed")
 	w.AppendEntry("info", "welcome", time.Time{})
 	w.AppendInput("/plan")
 	if err := w.Flush(); err != nil {
@@ -94,7 +98,7 @@ func TestUnarmedWriterNeverCreatesAFile(t *testing.T) {
 
 func TestArmingFlushesWhatWasBufferedBeforeIt(t *testing.T) {
 	isolateHome(t)
-	w := newTestWriter("buffered")
+	w := newTestWriter(t, "buffered")
 	w.AppendEntry("user", "hello", time.Time{})
 	if err := w.Flush(); err != nil { // not armed yet
 		t.Fatalf("Flush: %v", err)
@@ -119,7 +123,7 @@ func TestArmingFlushesWhatWasBufferedBeforeIt(t *testing.T) {
 
 func TestFlushOnlyAppends(t *testing.T) {
 	isolateHome(t)
-	w := newTestWriter("appendonly")
+	w := newTestWriter(t, "appendonly")
 	w.Arm()
 	w.AppendEntry("assistant", "one", time.Time{})
 	if err := w.Flush(); err != nil {
@@ -152,7 +156,7 @@ func TestFlushOnlyAppends(t *testing.T) {
 
 func TestEmptyFlushWritesNothing(t *testing.T) {
 	isolateHome(t)
-	w := newTestWriter("empty")
+	w := newTestWriter(t, "empty")
 	w.Arm()
 	if err := w.Flush(); err != nil {
 		t.Fatalf("Flush: %v", err)
@@ -164,7 +168,7 @@ func TestEmptyFlushWritesNothing(t *testing.T) {
 
 func TestLoadFoldsTheLogBack(t *testing.T) {
 	isolateHome(t)
-	w := newTestWriter("roundtrip")
+	w := newTestWriter(t, "roundtrip")
 	w.Arm()
 	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	w.AppendEntry("user", "hello", at)
@@ -213,7 +217,7 @@ func TestLoadFoldsTheLogBack(t *testing.T) {
 
 func TestLoadSurvivesATornLastLine(t *testing.T) {
 	isolateHome(t)
-	w := newTestWriter("torn")
+	w := newTestWriter(t, "torn")
 	w.Arm()
 	w.AppendEntry("user", "hello", time.Time{})
 	w.AppendEntry("assistant", "hi", time.Time{})
@@ -242,7 +246,7 @@ func TestLoadSurvivesATornLastLine(t *testing.T) {
 
 func TestCloseIsFinal(t *testing.T) {
 	isolateHome(t)
-	w := newTestWriter("closed")
+	w := newTestWriter(t, "closed")
 	w.Arm()
 	w.AppendEntry("assistant", "hi", time.Time{})
 	if err := w.Close("normal"); err != nil {
@@ -268,7 +272,7 @@ func TestCloseIsFinal(t *testing.T) {
 
 func TestConcurrentAppendAndFlush(t *testing.T) {
 	isolateHome(t)
-	w := newTestWriter("concurrent")
+	w := newTestWriter(t, "concurrent")
 	w.Arm()
 	var wg sync.WaitGroup
 	for i := range 8 {
@@ -297,7 +301,7 @@ func TestConcurrentAppendAndFlush(t *testing.T) {
 func TestListSummarizesNewestFirstAndSkipsJunk(t *testing.T) {
 	isolateHome(t)
 	for _, id := range []string{"older", "newer"} {
-		w := newTestWriter(id)
+		w := newTestWriter(t, id)
 		w.Arm()
 		w.AppendEntry("assistant", "hi", time.Time{})
 		if err := w.Close("normal"); err != nil {

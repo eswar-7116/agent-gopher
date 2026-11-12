@@ -31,7 +31,10 @@ func testModel(t *testing.T) *Model {
 		Logger: log.New(io.Discard, "", 0),
 	})
 	m := &Model{agent: ag}
-	m.log = session.NewWriter(&session.State{ID: "testsession0001", ProjectPath: "/tmp/proj", Model: ag.Model()})
+	w := session.NewWriter(&session.State{ID: "testsession0001", ProjectPath: "/tmp/proj", Model: ag.Model()})
+	// Windows cannot remove open files
+	t.Cleanup(func() { w.Close("normal") })
+	m.log = w
 	return m
 }
 
