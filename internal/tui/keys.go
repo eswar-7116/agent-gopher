@@ -128,8 +128,10 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 	}
 	m.input.Reset()
 	m.layout()
+	m.stateMu.Lock()
 	m.history = append(m.history, text)
 	m.histIdx = len(m.history)
+	m.stateMu.Unlock()
 	if strings.HasPrefix(text, "/") && m.runSlash(text) {
 		return m, nil
 	}
@@ -139,18 +141,21 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 
 // Moves through previously submitted inputs.
 func (m *Model) navigateHistory(key string) {
-	if len(m.history) == 0 {
+	m.stateMu.RLock()
+	history := m.history
+	m.stateMu.RUnlock()
+	if len(history) == 0 {
 		return
 	}
 	if key == "up" && m.histIdx > 0 {
 		m.histIdx--
-	} else if key == "down" && m.histIdx < len(m.history) {
+	} else if key == "down" && m.histIdx < len(history) {
 		m.histIdx++
 	}
-	if m.histIdx == len(m.history) {
+	if m.histIdx >= len(history) {
 		m.input.Reset()
 	} else {
-		m.input.SetValue(m.history[m.histIdx])
+		m.input.SetValue(history[m.histIdx])
 		m.input.CursorEnd()
 	}
 	m.layout()

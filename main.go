@@ -34,9 +34,10 @@ func main() {
 	}
 
 	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigs
+		saveChatState()
 		cleanup()
 		os.Exit(1)
 	}()
@@ -81,6 +82,17 @@ func main() {
 	}
 
 	cleanup()
+}
+
+// Persists the chat state of the running TUI, if there is one.
+func saveChatState() {
+	path, err := tui.SaveActiveSession()
+	switch {
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "\nWarning: failed to save chat state: %v\n", err)
+	case path != "":
+		fmt.Printf("\nChat state saved to %s\n", path)
+	}
 }
 
 func cleanup() {

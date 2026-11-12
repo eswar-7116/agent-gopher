@@ -74,12 +74,12 @@ func (a *Agent) SetMode(m Mode) {
 		return
 	}
 	a.mode = m
-	if len(a.messages) == 0 {
+	if a.messageCount() == 0 {
 		return // the prompt is added when the conversation starts
 	}
 	if m == ModePlan {
-		a.messages = append(a.messages, openai.SystemMessage(planModePrompt))
+		a.appendMessages(openai.SystemMessage(planModePrompt))
 	} else {
-		a.messages = append(a.messages, openai.SystemMessage("Plan mode is off. All tools are available again; you may now carry out changes."))
+		a.appendMessages(openai.SystemMessage("Plan mode is off. All tools are available again; you may now carry out changes."))
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/eswar-7116/agent-gopher/internal/mcpclient"
 	"github.com/eswar-7116/agent-gopher/internal/memory"
@@ -17,8 +18,11 @@ import (
 )
 
 type Agent struct {
-	client          *openai.Client
-	messages        []openai.ChatCompletionMessageParamUnion
+	client *openai.Client
+
+	msgMu    sync.RWMutex
+	messages []openai.ChatCompletionMessageParamUnion
+
 	registry        map[string]tools.Tool
 	toolDefs        []openai.ChatCompletionToolUnionParam
 	model           string
@@ -152,37 +156,38 @@ func (a *Agent) currentMemory() string {
 func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 	if a.globalMemoryDir != "" || a.projectMemoryDir != "" {
 		cur := a.currentMemory()
-		if len(a.messages) > 0 && cur != a.memorySeen {
+		if a.messageCount() > 0 && cur != a.memorySeen {
 			update := cur
 			if update == "" {
 				update = "Global memory is now empty."
 			} else {
 				update = "Global memory was updated. Current contents:\n" + update
 			}
-			a.messages = append(a.messages, openai.SystemMessage(update))
+			a.appendMessages(openai.SystemMessage(update))
 		}
 		a.memorySeen = cur
 
 		defer func() { a.memorySeen = a.currentMemory() }()
 	}
 
-	if len(a.messages) == 0 {
+	if a.messageCount() == 0 {
+		var preamble []openai.ChatCompletionMessageParamUnion
 		if a.systemPrompt != "" {
-			a.messages = append(a.messages, openai.SystemMessage(a.systemPrompt))
+			preamble = append(preamble, openai.SystemMessage(a.systemPrompt))
 		}
 		if a.memorySeen != "" {
-			a.messages = append(a.messages, openai.SystemMessage(a.memorySeen))
+			preamble = append(preamble, openai.SystemMessage(a.memorySeen))
 		}
 		if a.mode == ModePlan {
-			a.messages = append(a.messages, openai.SystemMessage(planModePrompt))
+			preamble = append(preamble, openai.SystemMessage(planModePrompt))
 		}
+		a.appendMessages(preamble...)
 	}
-	a.messages = append(a.messages, openai.UserMessage(userPrompt))
+	a.appendMessages(openai.UserMessage(userPrompt))
 
 	params := openai.ChatCompletionNewParams{
-		Model:    openai.ChatModel(a.model),
-		Messages: a.messages,
-		Tools:    filterDefs(a.mode, a.toolDefs),
+		Model: openai.ChatModel(a.model),
+		Tools: filterDefs(a.mode, a.toolDefs),
 	}
 
 	for step := 0; ; step++ {
@@ -190,12 +195,12 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 			return fmt.Errorf("exceeded %d steps without finishing", a.maxSteps)
 		}
 		a.logger.Println("Sending messages to LLM...")
-		params.Messages = a.messages
+		params.Messages = a.GetMessages()
 		msg, err := a.complete(ctx, params)
 		if err != nil {
 			return err
 		}
-		a.messages = append(a.messages, msg.ToParam())
+		a.appendMessages(msg.ToParam())
 
 		if len(msg.ToolCalls) == 0 {
 			break
@@ -212,7 +217,7 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 			}
 
 			toolResult := a.executeToolCall(ctx, name, arguments)
-			a.messages = append(a.messages, openai.ToolMessage(toolResult, toolCall.ID))
+			a.appendMessages(openai.ToolMessage(toolResult, toolCall.ID))
 		}
 	}
 
@@ -276,15 +281,48 @@ func serialize(v any) string {
 	return string(b)
 }
 
+// Returns the model the agent talks to
+func (a *Agent) Model() string { return a.model }
+
+// Appends to the conversation history
+func (a *Agent) appendMessages(msgs ...openai.ChatCompletionMessageParamUnion) {
+	if len(msgs) == 0 {
+		return
+	}
+	a.msgMu.Lock()
+	defer a.msgMu.Unlock()
+	a.messages = append(a.messages, msgs...)
+}
+
+// Returns the number of messages in the conversation history
+func (a *Agent) messageCount() int {
+	a.msgMu.RLock()
+	defer a.msgMu.RUnlock()
+	return len(a.messages)
+}
+
 // Returns a copy of the conversation history
 func (a *Agent) GetMessages() []openai.ChatCompletionMessageParamUnion {
+	a.msgMu.RLock()
+	defer a.msgMu.RUnlock()
 	messages := make([]openai.ChatCompletionMessageParamUnion, len(a.messages))
 	copy(messages, a.messages)
 	return messages
 }
 
+// Returns the conversation history encoded as JSON, for persisting it
+func (a *Agent) MessagesJSON() (json.RawMessage, error) {
+	msgs := a.GetMessages()
+	if len(msgs) == 0 {
+		return nil, nil
+	}
+	return json.Marshal(msgs)
+}
+
 // Returns the content of the last assistant message
 func (a *Agent) GetLastAssistantMessage() string {
+	a.msgMu.RLock()
+	defer a.msgMu.RUnlock()
 	for _, msg := range slices.Backward(a.messages) {
 		if msg.OfAssistant != nil {
 			if msg.OfAssistant.Content.OfString.Valid() {

@@ -10,8 +10,21 @@ import (
 )
 
 func (m *Model) add(r role, content string) {
+	m.stateMu.Lock()
 	m.entries = append(m.entries, entry{r, content})
+	m.stateMu.Unlock()
 	m.refresh()
+}
+
+// Appends streamed text to the entry in progress
+func (m *Model) appendToLast(content string) bool {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if len(m.entries) == 0 {
+		return false
+	}
+	m.entries[len(m.entries)-1].content += content
+	return true
 }
 
 func (m *Model) layout() {
@@ -36,7 +49,13 @@ func (m *Model) refresh() {
 	atBottom := m.viewport.AtBottom()
 	w := max(m.width-2, 10)
 	var b strings.Builder
-	for _, e := range m.entries {
+	m.stateMu.RLock()
+	entries := m.entries
+	lastRole, hasEntries := roleInfo, len(entries) > 0
+	if hasEntries {
+		lastRole = entries[len(entries)-1].role
+	}
+	for _, e := range entries {
 		var label string
 		var style lipgloss.Style
 		switch e.role {
@@ -62,11 +81,13 @@ func (m *Model) refresh() {
 		b.WriteString(lipgloss.NewStyle().Width(w).Render(e.content))
 		b.WriteString("\n\n")
 	}
+	m.stateMu.RUnlock()
+
 	if m.running && m.perm == nil {
 		b.WriteString(dimStyle.Render(m.spinner.View() + " working…"))
 	}
 	m.viewport.SetContent(b.String())
-	if atBottom || len(m.entries) > 0 && m.entries[len(m.entries)-1].role == roleUser {
+	if atBottom || hasEntries && lastRole == roleUser {
 		m.viewport.GotoBottom()
 	}
 }

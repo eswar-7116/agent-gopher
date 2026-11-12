@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
+
+	"os"
 
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
@@ -21,10 +24,16 @@ type Model struct {
 	input    textinput.Model
 	spinner  spinner.Model
 
+	stateMu     sync.RWMutex
 	entries     []entry
-	IsStreaming bool
 	history     []string
+	IsStreaming bool
 	histIdx     int
+
+	sessionID   string
+	projectPath string
+	startedAt   time.Time
+	saveFailed  bool
 
 	running bool
 	cancel  context.CancelFunc
@@ -56,8 +65,20 @@ func Run(ag *agent.Agent) error {
 	// Wheel scrolling is handled in Update
 	vp.MouseWheelEnabled = false
 
-	m := &Model{agent: ag, input: ti, spinner: sp, viewport: vp}
+	m := &Model{
+		agent:       ag,
+		input:       ti,
+		spinner:     sp,
+		viewport:    vp,
+		sessionID:   newSessionID(),
+		projectPath: workingDir(),
+		startedAt:   time.Now(),
+	}
 	m.entries = append(m.entries, entry{roleInfo, "Welcome to Agent Gopher. Enter sends · PgUp/PgDn scroll · Esc cancels a running task · Ctrl+C or /exit quits."})
+
+	// Lets a signal handler save the chat state
+	setActive(m)
+	defer setActive(nil)
 
 	p := tea.NewProgram(m)
 	m.prog = p
@@ -73,6 +94,12 @@ func Run(ag *agent.Agent) error {
 	defer func() { tools.PromptPermission = nil }()
 
 	_, err := p.Run()
+
+	if path, saveErr := m.saveSession(); saveErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to save chat state: %v\n", saveErr)
+	} else if path != "" {
+		fmt.Printf("Chat state saved to %s\n", path)
+	}
 	return err
 }
 
@@ -98,8 +125,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case textMsg:
-		if m.IsStreaming && len(m.entries) > 0 {
-			m.entries[len(m.entries)-1].content += string(msg)
+		if m.IsStreaming && m.appendToLast(string(msg)) {
 			m.refresh()
 		} else {
 			m.add(roleAssistant, string(msg))
@@ -120,6 +146,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.add(roleInfo, "Cancelled.")
 		}
 		m.refresh()
+		m.persist()
 		return m, nil
 
 	case permReqMsg:
