@@ -37,8 +37,7 @@ func TestDelegateTaskRunsSubAgent(t *testing.T) {
 		default: // parent, after tool result
 			msg = `{"role":"assistant","content":"done"}`
 		}
-		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"id":"x","object":"chat.completion","model":"m","choices":[{"index":0,"finish_reason":"stop","message":`+msg+`}]}`)
+		writeCompletion(w, msg)
 	}))
 	defer srv.Close()
 
@@ -92,8 +91,7 @@ func TestDelegateTaskValidatesArgs(t *testing.T) {
 
 func TestRunStopsAfterMaxSteps(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"id":"x","object":"chat.completion","model":"m","choices":[{"index":0,"finish_reason":"tool_calls","message":{"role":"assistant","content":"","tool_calls":[{"id":"c","type":"function","function":{"name":"nope","arguments":"{}"}}]}}]}`)
+		writeCompletion(w, `{"role":"assistant","content":"","tool_calls":[{"id":"c","type":"function","function":{"name":"nope","arguments":"{}"}}]}`)
 	}))
 	defer srv.Close()
 

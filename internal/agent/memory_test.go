@@ -20,8 +20,7 @@ func TestMemoryReachesModel(t *testing.T) {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		lastMsgs = body["messages"].([]any)
-		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"id":"x","object":"chat.completion","model":"m","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"ok"}}]}`)
+		writeCompletion(w, `{"role":"assistant","content":"ok"}`)
 	}))
 	defer srv.Close()
 

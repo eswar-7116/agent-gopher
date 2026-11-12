@@ -125,8 +125,8 @@ func (a *Agent) SetToolCallCallback(fn func(name, arguments string)) {
 	a.onToolCall = fn
 }
 
-// Sets a callback for assistant text
-func (a *Agent) SetTextCallback(fn func(text string)) {
+// Sets a callback to receive assistant text deltas as they stream in
+func (a *Agent) SetTextCallback(fn func(delta string)) {
 	a.onText = fn
 }
 
@@ -191,17 +191,11 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 		}
 		a.logger.Println("Sending messages to LLM...")
 		params.Messages = a.messages
-		resp, err := a.client.Chat.Completions.New(ctx, params)
+		msg, err := a.complete(ctx, params)
 		if err != nil {
-			return fmt.Errorf("chat completion failed: %w", err)
+			return err
 		}
-
-		msg := resp.Choices[0].Message
 		a.messages = append(a.messages, msg.ToParam())
-
-		if msg.Content != "" && a.onText != nil {
-			a.onText(msg.Content)
-		}
 
 		if len(msg.ToolCalls) == 0 {
 			break
@@ -223,6 +217,28 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 	}
 
 	return nil
+}
+
+// complete performs one streamed LLM round-trip, forwarding text deltas to onText as they arrive.
+func (a *Agent) complete(ctx context.Context, params openai.ChatCompletionNewParams) (openai.ChatCompletionMessage, error) {
+	stream := a.client.Chat.Completions.NewStreaming(ctx, params)
+	defer stream.Close()
+
+	var acc openai.ChatCompletionAccumulator
+	for stream.Next() {
+		chunk := stream.Current()
+		acc.AddChunk(chunk)
+		if a.onText != nil && len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
+			a.onText(chunk.Choices[0].Delta.Content)
+		}
+	}
+	if err := stream.Err(); err != nil {
+		return openai.ChatCompletionMessage{}, fmt.Errorf("chat completion failed: %w", err)
+	}
+	if len(acc.Choices) == 0 {
+		return openai.ChatCompletionMessage{}, fmt.Errorf("chat completion failed: empty response")
+	}
+	return acc.Choices[0].Message, nil
 }
 
 func (a *Agent) executeToolCall(ctx context.Context, name, arguments string) string {

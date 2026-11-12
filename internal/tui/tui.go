@@ -62,7 +62,8 @@ type Model struct {
 	input    textinput.Model
 	spinner  spinner.Model
 
-	entries []entry
+	entries   []entry
+	streaming bool // last entry is an assistant message still receiving deltas
 	history []string
 	histIdx int
 
@@ -154,15 +155,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case textMsg:
-		m.add(roleAssistant, string(msg))
+		if m.streaming && len(m.entries) > 0 {
+			m.entries[len(m.entries)-1].content += string(msg)
+			m.refresh()
+		} else {
+			m.add(roleAssistant, string(msg))
+			m.streaming = true
+		}
 		return m, nil
 
 	case toolCallMsg:
+		m.streaming = false
 		m.add(roleTool, fmt.Sprintf("%s %s", msg.name, truncate(msg.args, 200)))
 		return m, nil
 
 	case doneMsg:
-		m.running, m.cancel = false, nil
+		m.running, m.cancel, m.streaming = false, nil, false
 		if msg.err != nil && msg.err != context.Canceled && !strings.Contains(msg.err.Error(), "context canceled") {
 			m.add(roleError, msg.err.Error())
 		} else if msg.err != nil {
