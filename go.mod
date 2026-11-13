@@ -16,7 +16,7 @@ require (
 )
 
 require (
-	charm.land/lipgloss/v2 v2.0.4 // indirect
+	charm.land/lipgloss/v2 v2.0.5 // indirect
 	github.com/alecthomas/chroma/v2 v2.14.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
@@ -35,7 +35,7 @@ require (
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/mattn/go-runewidth v0.0.24 // indirect
+	github.com/mattn/go-runewidth v0.0.27 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
@@ -57,9 +57,3 @@ require (
 	golang.org/x/text v0.24.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 )
-
-replace charm.land/bubbletea/v2 => github.com/charmbracelet/bubbletea/v2 v2.0.10
-
-replace charm.land/lipgloss => github.com/charmbracelet/lipgloss v0.9.1
-
-replace charm.land/bubbles/v2 => github.com/charmbracelet/bubbles/v2 v2.1.0
