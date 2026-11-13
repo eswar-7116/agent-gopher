@@ -19,7 +19,7 @@ An agentic AI coding assistant for the terminal, written in Go. It connects to a
 - **AGENTS.md**: Drop an `AGENTS.md` file in your project root and its contents are injected as system-prompt instructions — project-specific conventions without touching config.
 - **Skills**: Reusable instruction sets stored as `SKILL.md` files under `~/.agent-gopher/skills/<name>/`. The agent loads matching skills on demand via the `use_skill` tool.
 - **Memory**: Global and per-project memory the agent can read, write, and forget. Managed via `/gopher memory`, `/gopher remember`, `/gopher forget`, or by the agent itself through a tool call.
-- **Session persistence**: Conversations are stored as append-only JSONL files under `~/.agent-memory/`, surviving crashes and allowing future session restore.
+- **Session persistence**: Conversations are stored as append-only JSONL files under `~/.agent-gopher/projects/<project>/`, surviving crashes and allowing future session restore.
 - **Message queuing**: Type while the agent is working — messages queue and inject into the conversation at the next step. Alt+Enter interrupts the current run and force-sends queued messages immediately.
 - **Cross-platform**: Builds and tests on Linux, macOS, and Windows (CI runs on all three).
 - **Any OpenAI-compatible API**: Point it at OpenRouter, a local Ollama instance, or any provider that speaks the OpenAI chat completions API.
@@ -45,6 +45,7 @@ On first run, Agent Gopher creates a default config at `~/.agent-gopher/config.j
   "api_key": "<your_api_key>",
   "base_url": "<your_base_url>",        // e.g. "https://openrouter.ai/api/v1"
   "model": "openrouter/free",
+  "theme": "default",                    // set with /theme, or any theme under ~/.agent-gopher/themes
   "context_window": 128000,              // model context size in tokens; compaction starts at 80%
   "permissive_shell": false,             // true skips command approval prompts
   "permissive_write": false,             // true skips file write approval prompts
@@ -71,6 +72,7 @@ On first run, Agent Gopher creates a default config at `~/.agent-gopher/config.j
 | `api_key` | _(required)_ | API key for your LLM provider |
 | `base_url` | _(required)_ | Base URL of an OpenAI-compatible API |
 | `model` | `openrouter/free` | Model identifier to use |
+| `theme` | `default` | TUI color theme; set with `/theme`, or drop your own under `~/.agent-gopher/themes/` |
 | `context_window` | `128000` | Model context size in tokens; the conversation is compacted at 80% |
 | `permissive_shell` | `false` | Skip shell command approval prompts |
 | `permissive_write` | `false` | Skip file write/edit approval prompts |
@@ -130,6 +132,7 @@ All tools the server exposes are registered alongside the built-in tools as `<na
 | `/mode [plan\|normal]` | Switch mode (no argument toggles) |
 | `/plan` | Switch to plan mode (read-only) |
 | `/normal` | Switch to normal mode |
+| `/theme [name]` | Set the TUI color theme |
 | `/compact` | Summarize the conversation to free up context |
 | `/gopher memory [global\|project]` | List remembered facts |
 | `/gopher remember [global\|project] <fact>` | Save a memory |
@@ -211,6 +214,14 @@ go test -race ./...      # with race detector
 ```
 
 CI runs build and test on Linux, macOS, and Windows.
+
+---
+
+## Performance
+
+- **Race-free under real concurrency.** `go test -race ./...` passes clean across every package. The TUI, session writer, and agent loop all share mutable state across goroutines (streaming, input queuing, sub-agent delegation), and this is checked on every CI run, not just asserted here.
+- **Sub-millisecond tool dispatch.** File I/O and diffing (including a unified diff over a 5,000-line file ahead of a write/edit approval prompt) run in single-digit-microseconds to low-single-digit-milliseconds, measured by the benchmark suite alongside the code it covers (e.g. [`internal/tools/bench_test.go`](internal/tools/bench_test.go)).
+- **Found and fixed a scaling bottleneck before it mattered.** The agent re-marshals its conversation history every step to track context usage; benchmarking showed this cost grows linearly with conversation length (~4x the time at 4x the turns). That's what motivated automatic context compaction (`/compact`), which keeps this cost bounded instead of letting it grow with session length.
 
 ---
 
