@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/openai/openai-go/v3"
+	"mvdan.cc/sh/v3/syntax"
 )
 
 type BackgroundProcess struct {
@@ -72,26 +73,54 @@ func (s ShellCmdTool) Definition() openai.ChatCompletionToolUnionParam {
 	})
 }
 
-func extractPrefix(cmdStr string) string {
-	fields := strings.Fields(cmdStr)
+// Returns the command name, plus its subcommand for tools like git
+func prefixOf(fields []string) string {
 	if len(fields) == 0 {
 		return ""
 	}
-
-	if subcommandTools[fields[0]] && len(fields) >= 2 {
-		for i := 1; i < len(fields); i++ {
-			if !strings.HasPrefix(fields[i], "-") {
-				return fields[0] + " " + fields[i]
+	if subcommandTools[fields[0]] {
+		for _, f := range fields[1:] {
+			if !strings.HasPrefix(f, "-") {
+				return fields[0] + " " + f
 			}
 		}
 	}
-
 	return fields[0]
+}
+
+// Returns the prefix of the first command in cmdStr
+func extractPrefix(cmdStr string) string {
+	f := parseShell(cmdStr)
+	if f == nil {
+		return ""
+	}
+	var fields []string
+	found := false
+	syntax.Walk(f, func(n syntax.Node) bool {
+		call, ok := n.(*syntax.CallExpr)
+		if found || !ok {
+			return !found
+		}
+		found = true
+		for _, w := range call.Args {
+			lit, ok := literal(w)
+			if !ok {
+				break
+			}
+			fields = append(fields, lit)
+		}
+		return false
+	})
+	return prefixOf(fields)
 }
 
 var shellOperators = []string{";", "&", "|", "`", "$(", ">", "<", "\n", "\r"}
 
-func hasShellOperators(cmdStr string) bool {
+// cmd.exe doesn't honour POSIX quoting
+func windowsOperators(cmdStr string) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
 	for _, op := range shellOperators {
 		if strings.Contains(cmdStr, op) {
 			return true
@@ -100,26 +129,98 @@ func hasShellOperators(cmdStr string) bool {
 	return false
 }
 
+// Parses cmdStr as a shell script
+func parseShell(cmdStr string) *syntax.File {
+	f, err := syntax.NewParser().Parse(strings.NewReader(cmdStr), "")
+	if err != nil {
+		return nil
+	}
+	return f
+}
+
+// Returns the word's value if the shell would pass it through unchanged
+func literal(w *syntax.Word) (string, bool) {
+	if syntax.SplitBraces(w) {
+		return "", false
+	}
+	var b strings.Builder
+	unquotedGlob := false
+	for _, part := range w.Parts {
+		switch p := part.(type) {
+		case *syntax.Lit:
+			if strings.Contains(p.Value, `\`) {
+				return "", false
+			}
+			unquotedGlob = unquotedGlob || strings.ContainsAny(p.Value, "*?[")
+			b.WriteString(p.Value)
+		case *syntax.SglQuoted:
+			if p.Dollar {
+				return "", false
+			}
+			b.WriteString(p.Value)
+		case *syntax.DblQuoted:
+			if p.Dollar {
+				return "", false
+			}
+			for _, dp := range p.Parts {
+				lit, ok := dp.(*syntax.Lit)
+				if !ok || strings.Contains(lit.Value, `\`) {
+					return "", false
+				}
+				b.WriteString(lit.Value)
+			}
+		default:
+			return "", false
+		}
+	}
+	s := b.String()
+
+	if unquotedGlob && strings.HasPrefix(s, "-") {
+		return "", false
+	}
+	return s, true
+}
+
+// Reports whether s has no redirects, backgrounding or negation
+func plainStmt(s *syntax.Stmt) bool {
+	return len(s.Redirs) == 0 && !s.Background && !s.Coprocess && !s.Disown && !s.Negated
+}
+
+// Returns the words of a simple command made only of literal words
+func callWords(s *syntax.Stmt) ([]string, bool) {
+	call, ok := s.Cmd.(*syntax.CallExpr)
+	if !ok || !plainStmt(s) || len(call.Assigns) > 0 || len(call.Args) == 0 {
+		return nil, false
+	}
+	fields := make([]string, len(call.Args))
+	for i, w := range call.Args {
+		lit, ok := literal(w)
+		if !ok {
+			return nil, false
+		}
+		fields[i] = lit
+	}
+	return fields, true
+}
+
+// Returns the words of cmdStr if it is a single simple command
+func singleCommand(cmdStr string) ([]string, bool) {
+	f := parseShell(cmdStr)
+	if f == nil || len(f.Stmts) != 1 {
+		return nil, false
+	}
+	return callWords(f.Stmts[0])
+}
+
 func isWhitelisted(cmdStr string, whitelistedCmds map[string]bool) bool {
-	if len(whitelistedCmds) == 0 || hasShellOperators(cmdStr) {
+	if len(whitelistedCmds) == 0 || windowsOperators(cmdStr) {
 		return false
 	}
-
-	fields := strings.Fields(cmdStr)
-	if len(fields) == 0 {
+	fields, ok := singleCommand(cmdStr)
+	if !ok {
 		return false
 	}
-
-	if whitelistedCmds[fields[0]] {
-		return true
-	}
-
-	prefix := extractPrefix(cmdStr)
-	if prefix != fields[0] && whitelistedCmds[prefix] {
-		return true
-	}
-
-	return false
+	return whitelistedCmds[fields[0]] || whitelistedCmds[prefixOf(fields)]
 }
 
 // Commands that only read (for plan mode)
@@ -146,22 +247,32 @@ var unsafeFlags = map[string][]string{
 
 // Reports whether cmdStr only reads
 func ReadOnlyCommand(cmdStr string) bool {
-	if strings.Contains(cmdStr, "||") || hasShellOperators(strings.ReplaceAll(cmdStr, "|", "")) {
+	if windowsOperators(strings.ReplaceAll(cmdStr, "|", "")) {
 		return false
 	}
-	for seg := range strings.SplitSeq(cmdStr, "|") {
-		fields := strings.Fields(seg)
-		if len(fields) == 0 || !readOnlyCmds[fields[0]] && fields[0] != "git" {
-			return false
-		}
-		if fields[0] == "git" && !readOnlyGitCmds[gitSubcommand(fields)] {
-			return false
-		}
-		for _, f := range fields[1:] {
-			for _, bad := range unsafeFlags[fields[0]] {
-				if f == bad || strings.HasPrefix(f, bad+"=") || len(bad) == 2 && strings.HasPrefix(f, bad) {
-					return false
-				}
+	f := parseShell(cmdStr)
+	if f == nil || len(f.Stmts) != 1 {
+		return false
+	}
+	return readOnlyStmt(f.Stmts[0])
+}
+
+// Reports whether s is a read-only command or a pipeline of them
+func readOnlyStmt(s *syntax.Stmt) bool {
+	if bin, ok := s.Cmd.(*syntax.BinaryCmd); ok {
+		return plainStmt(s) && bin.Op == syntax.Pipe && readOnlyStmt(bin.X) && readOnlyStmt(bin.Y)
+	}
+	fields, ok := callWords(s)
+	if !ok || !readOnlyCmds[fields[0]] && fields[0] != "git" {
+		return false
+	}
+	if fields[0] == "git" && !readOnlyGitCmds[gitSubcommand(fields)] {
+		return false
+	}
+	for _, f := range fields[1:] {
+		for _, bad := range unsafeFlags[fields[0]] {
+			if f == bad || strings.HasPrefix(f, bad+"=") || len(bad) == 2 && strings.HasPrefix(f, bad) {
+				return false
 			}
 		}
 	}

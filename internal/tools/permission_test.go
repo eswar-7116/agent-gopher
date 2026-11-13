@@ -42,6 +42,23 @@ func TestWhitelistRefusesChainedCommands(t *testing.T) {
 	if !isWhitelisted("git status -s", wl) {
 		t.Error("plain whitelisted command was refused")
 	}
+	if runtime.GOOS != "windows" && !isWhitelisted(`echo "a; b | c"`, wl) {
+		t.Error("quoted operators were treated as real ones")
+	}
+}
+
+func TestExtractPrefix(t *testing.T) {
+	for cmd, want := range map[string]string{
+		"git status -s":        "git status",
+		`git commit -m "a; b"`: "git commit",
+		"ls -la && rm x":       "ls",
+		"FOO=1 make build":     "make",
+		"":                     "",
+	} {
+		if got := extractPrefix(cmd); got != want {
+			t.Errorf("extractPrefix(%q) = %q, want %q", cmd, got, want)
+		}
+	}
 }
 
 func TestReadOnlyCommand(t *testing.T) {
@@ -54,6 +71,9 @@ func TestReadOnlyCommand(t *testing.T) {
 		"git log --oneline -5",
 		"git diff HEAD~1",
 		"cat main.go | wc -l",
+	}
+	if runtime.GOOS != "windows" {
+		ok = append(ok, `grep "a|b" file.txt`, `grep 'x; y' file.txt`)
 	}
 	bad := []string{
 		"rm -rf x",
@@ -68,6 +88,13 @@ func TestReadOnlyCommand(t *testing.T) {
 		"echo $(rm x)",
 		"ls | sh",
 		"",
+		`find . -\exec rm {} ';'`,
+		"find . -{exec,ok} rm {} ';'",
+		"find . -e*ec rm {} ';'",
+		"find . $'-exec' rm {} ';'",
+		"! ls",
+		"ls |& cat",
+		"FOO=1 ls",
 	}
 	for _, c := range ok {
 		if !ReadOnlyCommand(c) {
