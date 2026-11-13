@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -99,7 +100,11 @@ func TestAlwaysAllowAppliesImmediatelyAndOnce(t *testing.T) {
 }
 
 func TestShellErrorKeepsOutput(t *testing.T) {
-	out, err := ShellCmdTool{Permissive: true}.Execute(t.Context(), map[string]any{"cmd": "echo boom; exit 3"})
+	cmdStr := "echo boom; exit 3"
+	if runtime.GOOS == "windows" {
+		cmdStr = "echo boom & exit 3"
+	}
+	out, err := ShellCmdTool{Permissive: true}.Execute(t.Context(), map[string]any{"cmd": cmdStr})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -175,8 +180,10 @@ func TestEditFile(t *testing.T) {
 	if err := edit(map[string]any{"old_string": "a", "new_string": "x", "replace_all": true}); err != nil || read() != "x\nB\nx\n" {
 		t.Errorf("replace_all: err=%v content=%q", err, read())
 	}
-	if st, _ := os.Stat(path); st.Mode().Perm() != 0o640 {
-		t.Errorf("mode = %v, want 0640", st.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		if st, _ := os.Stat(path); st.Mode().Perm() != 0o640 {
+			t.Errorf("mode = %v, want 0640", st.Mode().Perm())
+		}
 	}
 }
 

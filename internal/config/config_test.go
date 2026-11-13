@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -35,8 +36,10 @@ func TestAddWhitelistedDedupesAndSkipsEnv(t *testing.T) {
 	if n := strings.Count(string(data), `"echo"`); n != 1 {
 		t.Errorf("echo saved %d times, want 1", n)
 	}
-	if st, _ := os.Stat(paths.ConfigFile); st.Mode().Perm() != 0o600 {
-		t.Errorf("config mode = %v, want 0600", st.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		if st, _ := os.Stat(paths.ConfigFile); st.Mode().Perm() != 0o600 {
+			t.Errorf("config mode = %v, want 0600", st.Mode().Perm())
+		}
 	}
 }
 
