@@ -3,7 +3,9 @@
   "base_url": "<your_base_url>",
   "model": "openrouter/free",
   "theme": "default",
+  "context_window": 128000,
   "permissive_shell": false,
+  "permissive_write": false,
   "whitelisted_cmds": [],
   "tavily_api_key": "",
   "mcp_servers": [

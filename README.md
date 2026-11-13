@@ -10,11 +10,12 @@ An agentic AI coding assistant for the terminal, written in Go. It connects to a
 
 - **Terminal UI**: Full-screen TUI with streaming responses, input history (↑/↓), scroll (PgUp/PgDn), and slash-command suggestions with tab completion.
 - **Streaming**: Assistant replies stream token-by-token as they arrive.
-- **Tool use**: The agent can read/write files, run shell commands (foreground and background), search the web (Tavily), and kill processes — all as OpenAI function calls.
-- **Shell permission system**: Commands require approval by default. You can allow once, always-allow a command prefix, or deny with an alternative instruction the agent follows instead. Subcommand-aware whitelisting covers `git`, `go`, `docker`, `npm`, and more; allowed prefixes persist to `config.json`.
+- **Tool use**: The agent can read, write and edit files (search/replace), run shell commands (foreground and background), search the web (Tavily), and kill processes — all as OpenAI function calls.
+- **Permission system**: Shell commands and file writes require approval by default. Commands are shown in full (long ones scroll); writes and edits show a colored diff first. You can allow once, always-allow a command prefix (or all writes for the session), or deny with an alternative instruction the agent follows instead. Subcommand-aware whitelisting covers `git`, `go`, `docker`, `npm`, and more; allowed prefixes take effect immediately and persist to `config.json`. Whitelisted prefixes never auto-approve chained, piped, redirected or substituted commands (`;`, `&&`, `|`, `>`, `$(…)`, backticks).
+- **Context management**: Tool output is capped, token usage is shown in the status line, and the conversation is summarized automatically when it nears the context window (or on demand with `/compact`). Failed commands return their output to the model, so it can see what went wrong.
 - **MCP server support**: Connect any [Model Context Protocol](https://modelcontextprotocol.io/) server via stdio and its tools appear alongside the built-in ones.
 - **Sub-agent delegation**: The agent can spin off a sub-agent with a fresh context and the same toolset to handle research or exploration tasks, keeping the parent's context clean.
-- **Plan mode**: A read-only mode (`/plan`) where the agent can only investigate (read files, search, delegate) and must respond with an implementation plan instead of making changes. Toggle it back with `/normal`.
+- **Plan mode**: A read-only mode (`/plan`) where the agent can only investigate (read files, read-only shell commands like `ls`, `grep`, `rg`, `find`, `git status/log/diff`, search, delegate) and must respond with an implementation plan instead of making changes. Toggle it back with `/normal`.
 - **AGENTS.md**: Drop an `AGENTS.md` file in your project root and its contents are injected as system-prompt instructions — project-specific conventions without touching config.
 - **Skills**: Reusable instruction sets stored as `SKILL.md` files under `~/.agent-gopher/skills/<name>/`. The agent loads matching skills on demand via the `use_skill` tool.
 - **Memory**: Global and per-project memory the agent can read, write, and forget. Managed via `/gopher memory`, `/gopher remember`, `/gopher forget`, or by the agent itself through a tool call.
@@ -37,16 +38,18 @@ go build -o agent-gopher .
 
 ### 2. Configure
 
-On first run, Agent Gopher creates a default config at `~/.agent-gopher/config.json`. Fill in your API key and base URL:
+On first run, Agent Gopher creates a default config at `~/.agent-gopher/config.json`. Fill in your API key and base URL (or set them through [environment variables](#environment-variables)):
 
 ```jsonc
 {
   "api_key": "<your_api_key>",
   "base_url": "<your_base_url>",        // e.g. "https://openrouter.ai/api/v1"
   "model": "openrouter/free",
+  "context_window": 128000,              // model context size in tokens; compaction starts at 80%
   "permissive_shell": false,             // true skips command approval prompts
+  "permissive_write": false,             // true skips file write approval prompts
   "whitelisted_cmds": [],                // always-allowed command prefixes
-  "tavily_api_key": "",                  // optional, enables web_search tool
+  "tavily_api_key": "",                  // optional, enables the web_search tool
   "mcp_servers": []                      // optional MCP server configs
 }
 ```
@@ -68,10 +71,23 @@ On first run, Agent Gopher creates a default config at `~/.agent-gopher/config.j
 | `api_key` | _(required)_ | API key for your LLM provider |
 | `base_url` | _(required)_ | Base URL of an OpenAI-compatible API |
 | `model` | `openrouter/free` | Model identifier to use |
+| `context_window` | `128000` | Model context size in tokens; the conversation is compacted at 80% |
 | `permissive_shell` | `false` | Skip shell command approval prompts |
+| `permissive_write` | `false` | Skip file write/edit approval prompts |
 | `whitelisted_cmds` | `[]` | Command prefixes that are always allowed |
-| `tavily_api_key` | `""` | Tavily API key for the `web_search` tool |
+| `tavily_api_key` | `""` | Tavily API key; `web_search` is only offered when set |
 | `mcp_servers` | `[]` | MCP servers to connect on startup (see below) |
+
+### Environment variables
+
+These override the matching config values. They are never written back to `config.json`.
+
+| Variable | Overrides |
+|---|---|
+| `GOPHER_API_KEY` | `api_key` |
+| `GOPHER_BASE_URL` | `base_url` |
+| `GOPHER_MODEL` | `model` |
+| `TAVILY_API_KEY` | `tavily_api_key` |
 
 ### MCP Servers
 
@@ -85,7 +101,7 @@ Each MCP server entry specifies a stdio command:
 }
 ```
 
-All tools the server exposes are registered alongside the built-in tools.
+All tools the server exposes are registered alongside the built-in tools as `<name>__<tool>` (characters other than letters, digits, `_` and `-` become `_`). Servers get 30 seconds to start and list their tools; if that fails, the error is shown in the chat when Agent Gopher opens.
 
 ---
 
@@ -93,12 +109,13 @@ All tools the server exposes are registered alongside the built-in tools.
 
 | Tool | Description |
 |---|---|
-| `read_file` | Read a file from disk |
-| `write_file` | Write or overwrite a file |
-| `shell_cmd` | Execute a shell command (foreground or background) |
+| `read_file` | Read a file from disk (whole or a line range) |
+| `write_file` | Write, overwrite or append to a file (asks first, with a diff) |
+| `edit_file` | Replace exact text in a file (asks first, with a diff) |
+| `shell_cmd` | Execute a shell command (foreground or background); read-only commands only in plan mode |
 | `read_logs` | Read logs from a background process |
 | `kill_process` | Kill a running background process |
-| `web_search` | Search the web via Tavily |
+| `web_search` | Search the web via Tavily (only with a Tavily key) |
 | `delegate_task` | Spawn a sub-agent for a self-contained task |
 | `use_skill` | Load a skill's instructions |
 | `save_memory` | Persist a fact to global or project memory |
@@ -113,6 +130,7 @@ All tools the server exposes are registered alongside the built-in tools.
 | `/mode [plan\|normal]` | Switch mode (no argument toggles) |
 | `/plan` | Switch to plan mode (read-only) |
 | `/normal` | Switch to normal mode |
+| `/compact` | Summarize the conversation to free up context |
 | `/gopher memory [global\|project]` | List remembered facts |
 | `/gopher remember [global\|project] <fact>` | Save a memory |
 | `/gopher forget [global\|project] <n\|text>` | Remove a memory |
@@ -136,9 +154,11 @@ All tools the server exposes are registered alongside the built-in tools.
 
 | Key | Action |
 |---|---|
-| y / Enter | Allow this command |
-| a | Always allow this command prefix |
+| y / Enter | Allow this command or write |
+| a | Always allow this command prefix, or allow all writes for this session |
 | n / Esc | Deny (then type an alternative instruction, or Enter to skip) |
+| ← / → | Scroll a long command |
+| PgUp / PgDn | Review the diff of a pending write |
 
 ---
 
@@ -177,7 +197,7 @@ internal/
   paths/                     Resolves all on-disk paths at startup
   session/                   Append-only JSONL session persistence
   skills/                    Skill loader and tool
-  tools/                     Built-in tool registry (file I/O, shell, web search, process management)
+  tools/                     Built-in tool registry (file I/O and edits, diffs, permissions, shell, web search, process management)
   tui/                       Bubble Tea terminal UI
 ```
 
