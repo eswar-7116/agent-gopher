@@ -16,6 +16,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.cancel != nil {
 			m.cancel()
+			return m, nil
 		}
 		return m, tea.Quit
 	case "pgup", "pgdown", "ctrl+u", "ctrl+d":

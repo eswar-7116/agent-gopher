@@ -111,7 +111,7 @@ func (m *Model) View() tea.View {
 	}
 
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("🤖 Agent Gopher"))
+	b.WriteString(titleStyle.Render("Agent Gopher"))
 	b.WriteString("\n")
 	b.WriteString(m.viewport.View())
 	b.WriteString("\n")
@@ -146,7 +146,7 @@ func (m *Model) statusLine() string {
 		return modeTag + "Interrupting…"
 	}
 	if m.running {
-		return modeTag + "Enter queue · Alt+Enter interrupt & send · Esc cancel · Ctrl+C quit"
+		return modeTag + "Enter queue · Alt+Enter interrupt & send · Esc/Ctrl+C cancel"
 	}
 	return modeTag + "/ commands · Enter send · ↑/↓ history · PgUp/PgDn scroll · Ctrl+C quit"
 }

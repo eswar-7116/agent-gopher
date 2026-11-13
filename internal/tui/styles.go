@@ -23,7 +23,7 @@ var (
 	toolStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 	errorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
+	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("27"))
 	promptStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("214")).Padding(0, 1)
 	inputBox    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240")).Padding(0, 1)
 )
