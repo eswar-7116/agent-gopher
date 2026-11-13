@@ -111,10 +111,10 @@ All tools the server exposes are registered alongside the built-in tools as `<na
 
 | Tool | Description |
 |---|---|
-| `read_file` | Read a file from disk (whole or a line range) |
-| `write_file` | Write, overwrite or append to a file (asks first, with a diff) |
-| `edit_file` | Replace exact text in a file (asks first, with a diff) |
-| `shell_cmd` | Execute a shell command (foreground or background); read-only commands only in plan mode |
+| `read_file` | Read a file from disk |
+| `write_file` | Write, overwrite or append to a file |
+| `edit_file` | Replace exact text in a file |
+| `shell_cmd` | Execute a shell command (foreground or background) |
 | `read_logs` | Read logs from a background process |
 | `kill_process` | Kill a running background process |
 | `web_search` | Search the web via Tavily (only with a Tavily key) |
@@ -184,25 +184,6 @@ Skills are reusable instruction sets. Create a directory under `~/.agent-gopher/
 ```
 
 Each `SKILL.md` can have optional YAML frontmatter for `name` and `description`. The agent sees the skill list and calls `use_skill` to load the full instructions when a task matches.
-
----
-
-## Architecture
-
-```
-main.go                      Entry point: config, MCP connections, TUI launch
-internal/
-  agent/                     Core agent loop: streaming, tool dispatch, sub-agents, plan mode, AGENTS.md
-  config/                    JSON config load/save
-  llm/                       OpenAI client wrapper
-  mcpclient/                 MCP stdio client
-  memory/                    Global and per-project memory store + tool
-  paths/                     Resolves all on-disk paths at startup
-  session/                   Append-only JSONL session persistence
-  skills/                    Skill loader and tool
-  tools/                     Built-in tool registry (file I/O and edits, diffs, permissions, shell, web search, process management)
-  tui/                       Bubble Tea terminal UI
-```
 
 ---
 
