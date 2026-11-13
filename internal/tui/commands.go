@@ -13,6 +13,7 @@ var slashCmds = []slashCmd{
 	{"/mode", "Switch mode: /mode plan | normal (no arg toggles)"},
 	{"/plan", "Switch to plan mode (read-only)"},
 	{"/normal", "Switch to normal mode"},
+	{"/theme", "Set theme: /theme <name> (no arg lists available themes)"},
 	{"/gopher", "Memory: /gopher memory [global|project] | remember [global|project] <fact> | forget [global|project] <n|text>"},
 	{"/exit", "Quit Agent Gopher"},
 	{"/quit", "Quit Agent Gopher"},
@@ -31,6 +32,25 @@ func (m *Model) suggestions() []slashCmd {
 		}
 	}
 	return out
+}
+
+// Returns a hint string showing available options for a typed command.
+func (m *Model) argHint() string {
+	v := m.input.Value()
+	if m.perm != nil || !strings.HasPrefix(v, "/") {
+		return ""
+	}
+	cmd, _, hasSpace := strings.Cut(v, " ")
+	if !hasSpace {
+		return ""
+	}
+	switch cmd {
+	case "/mode":
+		return "plan | normal"
+	case "/gopher":
+		return "memory | remember | forget"
+	}
+	return ""
 }
 
 func (m *Model) runSlash(text string) bool {
@@ -56,6 +76,11 @@ func (m *Model) runSlash(text string) bool {
 			m.add(roleError, err.Error())
 			return true
 		}
+	case "/theme":
+		m.input.Reset()
+		m.layout()
+		m.runThemeCmd(fields[1:])
+		return true
 	case "/gopher":
 		m.input.Reset()
 		m.layout()
@@ -111,6 +136,51 @@ func (m *Model) runGopher(args string) {
 	default:
 		m.add(roleInfo, gopherUsage)
 	}
+}
+
+func (m *Model) runThemeCmd(args []string) {
+	if len(args) == 0 {
+		themes := AvailableThemes()
+		current := ActiveTheme().Name
+		m.themeMenu = themes
+		m.themeIdx = 0
+		for i, t := range themes {
+			if t == current {
+				m.themeIdx = i
+				break
+			}
+		}
+		m.layout()
+		return
+	}
+	name := args[0]
+	LoadTheme(name)
+	if w := ThemeWarning(); w != "" {
+		m.add(roleError, w)
+		return
+	}
+	m.add(roleInfo, "Theme set to "+name+".")
+	m.refresh()
+}
+
+func (m *Model) applyThemeSelection() {
+	if m.themeIdx >= len(m.themeMenu) {
+		return
+	}
+	name := m.themeMenu[m.themeIdx]
+	m.themeMenu = nil
+	LoadTheme(name)
+	if w := ThemeWarning(); w != "" {
+		m.add(roleError, w)
+		return
+	}
+	m.add(roleInfo, "Theme set to "+name+".")
+	m.layout()
+}
+
+func (m *Model) closeThemeMenu() {
+	m.themeMenu = nil
+	m.layout()
 }
 
 func memoryScope(args string) (string, string) {

@@ -18,6 +18,7 @@ type Config struct {
 	OpenRouterAPIKey string            `json:"api_key"`
 	BaseURL          string            `json:"base_url"`
 	Model            string            `json:"model"`
+	Theme            string            `json:"theme"`
 	PermissiveShell  bool              `json:"permissive_shell"`
 	WhitelistedCmds  []string          `json:"whitelisted_cmds"`
 	TavilyAPIKey     string            `json:"tavily_api_key"`
@@ -38,6 +39,7 @@ func Load() Config {
 				BaseURL:          "",
 				OpenRouterAPIKey: "",
 				Model:            "openrouter/free",
+				Theme:            "default",
 				PermissiveShell:  false,
 				WhitelistedCmds:  []string{},
 				TavilyAPIKey:     "",
@@ -71,6 +73,9 @@ func Load() Config {
 	}
 	if config.Model == "" {
 		config.Model = "openrouter/free"
+	}
+	if config.Theme == "" {
+		config.Theme = "default"
 	}
 	if config.WhitelistedCmds == nil {
 		config.WhitelistedCmds = []string{}

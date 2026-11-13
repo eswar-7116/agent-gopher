@@ -71,7 +71,7 @@ func TestNewIDUsesNanoIDAlphabet(t *testing.T) {
 func TestPathUsesNormalizedProjectDirAndJSONL(t *testing.T) {
 	home := isolateHome(t)
 	got := Path("abc")
-	want := filepath.Join(home, ".agent-memory", "tmp-proj", "abc.jsonl")
+	want := filepath.Join(home, ".agent-gopher", "projects", "tmp-proj", "abc.jsonl")
 	if got != want {
 		t.Fatalf("Path = %q, want %q", got, want)
 	}
@@ -91,7 +91,7 @@ func TestUnarmedWriterNeverCreatesAFile(t *testing.T) {
 	if w.Created() {
 		t.Fatal("Created() = true for a writer never armed")
 	}
-	if _, err := os.Stat(filepath.Join(home, ".agent-memory")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(home, ".agent-gopher", "projects")); !os.IsNotExist(err) {
 		t.Fatalf("session root exists for a writer never armed: %v", err)
 	}
 }

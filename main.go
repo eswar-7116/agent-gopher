@@ -32,6 +32,12 @@ func main() {
 		log.Fatalf("error resolving paths: %v", err)
 	}
 	cfg := config.Load()
+
+	if err := tui.InitThemes(); err != nil {
+		log.Printf("Warning: failed to initialize themes: %v\n", err)
+	}
+	tui.LoadTheme(cfg.Theme)
+
 	client := llm.NewClient(cfg.OpenRouterAPIKey, cfg.BaseURL)
 
 	// Connect to configured MCP servers

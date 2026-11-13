@@ -10,7 +10,7 @@ import (
 
 const (
 	configDirName   = ".agent-gopher"
-	sessionsDirName = ".agent-memory"
+	projectsDirName = "projects"
 )
 
 var (
@@ -19,11 +19,12 @@ var (
 	ConfigDir  string // ~/.agent-gopher
 	ConfigFile string // ~/.agent-gopher/config.json
 	SkillsDir  string // ~/.agent-gopher/skills
+	ThemesDir  string // ~/.agent-gopher/themes
 
 	GlobalMemoryDir  string // ~/.agent-gopher
 	ProjectMemoryDir string // ~/.agent-gopher/<project>
 
-	SessionsDir string // ~/.agent-memory/<project>
+	SessionsDir string // ~/.agent-gopher/projects/<project>
 )
 
 // Resolves all paths from the user's home and working directories.
@@ -43,12 +44,13 @@ func InitWithBase(home, projectPath string) {
 	ConfigDir = filepath.Join(home, configDirName)
 	ConfigFile = filepath.Join(ConfigDir, "config.json")
 	SkillsDir = filepath.Join(ConfigDir, "skills")
+	ThemesDir = filepath.Join(ConfigDir, "themes")
 	GlobalMemoryDir = ConfigDir
 	ProjectMemoryDir, SessionsDir = "", ""
 	if projectPath != "" {
 		name := NormalizeProjectPath(projectPath)
 		ProjectMemoryDir = filepath.Join(ConfigDir, name)
-		SessionsDir = filepath.Join(home, sessionsDirName, name)
+		SessionsDir = filepath.Join(ConfigDir, projectsDirName, name)
 	}
 }
 

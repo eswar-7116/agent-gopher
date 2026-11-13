@@ -49,6 +49,10 @@ type Model struct {
 
 	sugIdx int // selected slash-command suggestion
 
+	// theme picker
+	themeMenu []string
+	themeIdx  int
+
 	// last applied wheel scroll, used to collapse bursts of wheel events.
 	lastWheel    time.Time
 	lastWheelDir tea.MouseButton
@@ -78,6 +82,9 @@ func Run(ag *agent.Agent) error {
 		log:      newSessionLog(ag),
 	}
 	m.add(roleInfo, "Welcome to Agent Gopher. Enter sends · PgUp/PgDn scroll · Esc cancels a running task · Ctrl+C or /exit quits.")
+	if w := ThemeWarning(); w != "" {
+		m.add(roleError, w)
+	}
 
 	// Lets a signal handler save the chat state
 	setActive(m)

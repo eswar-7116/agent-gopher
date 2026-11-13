@@ -46,6 +46,12 @@ func (m *Model) layout() {
 		footer += 4
 	}
 	footer += len(m.suggestions()) + len(m.queue)
+	if m.argHint() != "" {
+		footer++
+	}
+	if m.themeMenu != nil {
+		footer += len(m.themeMenu) + 1
+	}
 	m.viewport.SetWidth(m.width)
 	m.viewport.SetHeight(max(m.height-footer-1, 3))
 	m.refresh()
@@ -123,6 +129,11 @@ func (m *Model) View() tea.View {
 	}
 	b.WriteString(m.queueList())
 	b.WriteString(m.suggestionList())
+	if hint := m.argHint(); hint != "" {
+		b.WriteString(dimStyle.Render("  " + hint))
+		b.WriteString("\n")
+	}
+	b.WriteString(m.themeMenuView())
 	b.WriteString(inputBox.Width(max(m.width-2, 10)).Render(m.input.View()))
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render(status))
@@ -132,6 +143,9 @@ func (m *Model) View() tea.View {
 
 // Returns the hint line shown under the input box
 func (m *Model) statusLine() string {
+	if m.themeMenu != nil {
+		return "↑/↓ navigate · Enter select · Esc cancel"
+	}
 	if m.perm != nil {
 		if m.askingAlt {
 			return "Enter send alternative · Esc skip"
@@ -182,6 +196,29 @@ func (m *Model) suggestionList() string {
 			line = dimStyle.Render("  " + line)
 		}
 		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func (m *Model) themeMenuView() string {
+	if m.themeMenu == nil {
+		return ""
+	}
+	current := ActiveTheme().Name
+	var b strings.Builder
+	b.WriteString(dimStyle.Render("Select a theme:"))
+	b.WriteString("\n")
+	for i, name := range m.themeMenu {
+		label := name
+		if name == current {
+			label += " (current)"
+		}
+		if i == m.themeIdx {
+			b.WriteString(userStyle.Render("▸ " + label))
+		} else {
+			b.WriteString(dimStyle.Render("  " + label))
+		}
 		b.WriteString("\n")
 	}
 	return b.String()

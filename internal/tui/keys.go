@@ -30,6 +30,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handlePermKey(msg, key)
 	}
 
+	// Theme picker menu takes over input until dismissed.
+	if m.themeMenu != nil {
+		return m.handleThemeMenuKey(key)
+	}
+
 	if sugs := m.suggestions(); len(sugs) > 0 {
 		if handled := m.handleSuggestionKey(key, sugs); handled {
 			return m, nil
@@ -197,4 +202,20 @@ func (m *Model) navigateHistory(key string) {
 		m.input.CursorEnd()
 	}
 	m.layout()
+}
+
+func (m *Model) handleThemeMenuKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "up", "k":
+		m.themeIdx = (m.themeIdx + len(m.themeMenu) - 1) % len(m.themeMenu)
+		m.layout()
+	case "down", "j":
+		m.themeIdx = (m.themeIdx + 1) % len(m.themeMenu)
+		m.layout()
+	case "enter":
+		m.applyThemeSelection()
+	case "esc", "q":
+		m.closeThemeMenu()
+	}
+	return m, nil
 }

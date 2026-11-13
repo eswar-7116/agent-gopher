@@ -17,7 +17,7 @@ func TestInitWithBase(t *testing.T) {
 		"SkillsDir":        {SkillsDir, filepath.Join(root, "skills")},
 		"GlobalMemoryDir":  {GlobalMemoryDir, root},
 		"ProjectMemoryDir": {ProjectMemoryDir, filepath.Join(root, "home-eswar-myproj")},
-		"SessionsDir":      {SessionsDir, filepath.Join(home, sessionsDirName, "home-eswar-myproj")},
+		"SessionsDir":      {SessionsDir, filepath.Join(root, projectsDirName, "home-eswar-myproj")},
 	} {
 		if c[0] != c[1] {
 			t.Errorf("%s = %q, want %q", name, c[0], c[1])
