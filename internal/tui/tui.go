@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -36,6 +37,7 @@ type Model struct {
 	openAt         time.Time // when that reply started
 	flushMu        sync.Mutex
 	loggedMessages int // agent messages already queued to the log
+	loggedEpoch    int // agent epoch those messages belong to
 	saveFailed     bool
 
 	running bool
@@ -46,6 +48,8 @@ type Model struct {
 	// permission request
 	perm      *permReqMsg
 	askingAlt bool
+	marquee   int  // scroll position of a long command
+	scrubbed  bool // user moved the marquee by hand
 
 	sugIdx int // selected slash-command suggestion
 
@@ -63,7 +67,8 @@ type Model struct {
 
 // Starts the TUI and blocks until it exits.
 // If resumeID is non-empty the previous session is loaded and its conversation restored.
-func Run(ag *agent.Agent, resumeID string) error {
+// startupErrors are shown as errors once the TUI opens.
+func Run(ag *agent.Agent, resumeID string, startupErrors []string) error {
 	ti := textinput.New()
 	ti.Placeholder = "Message the agent…"
 	ti.CharLimit = 10000
@@ -96,6 +101,9 @@ func Run(ag *agent.Agent, resumeID string) error {
 	if w := ThemeWarning(); w != "" {
 		m.add(roleError, w)
 	}
+	for _, e := range startupErrors {
+		m.add(roleError, e)
+	}
 
 	// Lets a signal handler save the chat state
 	setActive(m)
@@ -107,9 +115,10 @@ func Run(ag *agent.Agent, resumeID string) error {
 	ag.SetToolCallCallback(func(name, args string) { p.Send(toolCallMsg{name, args}) })
 	ag.SetTextCallback(func(t string) { p.Send(textMsg(t)) })
 	ag.SetInjectedCallback(func(t []string) { p.Send(injectedMsg(t)) })
-	tools.PromptPermission = func(cmd string, bg bool) (string, string) {
+	ag.SetNoticeCallback(func(t string) { p.Send(noticeMsg(t)) })
+	tools.PromptPermission = func(req tools.PermissionRequest) (string, string) {
 		reply := make(chan permReply, 1)
-		p.Send(permReqMsg{cmd: cmd, background: bg, reply: reply})
+		p.Send(permReqMsg{PermissionRequest: req, reply: reply})
 		r := <-reply
 		return r.choice, r.alt
 	}
@@ -141,6 +150,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
+		if m.perm != nil && !m.scrubbed {
+			m.marquee++
+		}
 		if m.running {
 			m.refresh()
 		}
@@ -159,6 +171,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.IsStreaming = false
 		m.add(roleTool, fmt.Sprintf("%s %s", msg.name, truncate(msg.args, 200)))
 		return m, nil
+
+	case noticeMsg:
+		m.IsStreaming = false
+		m.add(roleInfo, string(msg))
+		return m, nil
+
+	case compactDoneMsg:
+		m.running, m.cancel = false, nil
+		switch {
+		case errors.Is(msg.err, agent.ErrNothingToCompact):
+			m.add(roleInfo, "Nothing to compact yet.")
+		case msg.err != nil && !errors.Is(msg.err, context.Canceled):
+			m.add(roleError, msg.err.Error())
+		case msg.err != nil:
+			m.add(roleInfo, "Cancelled.")
+		}
+		m.persist()
+		return m, m.drainQueue()
 
 	case injectedMsg:
 		m.queue = m.queue[min(len(msg), len(m.queue)):]
@@ -192,6 +222,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case permReqMsg:
 		m.perm = &msg
+		m.marquee, m.scrubbed = 0, false
+		if msg.Kind == tools.PermWrite {
+			m.IsStreaming = false
+			m.add(roleDiff, msg.Diff)
+		}
 		m.layout()
 		return m, nil
 

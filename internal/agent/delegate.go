@@ -63,6 +63,8 @@ func (d delegateTool) Execute(ctx context.Context, args map[string]any) (any, er
 		systemPrompt: subAgentSystemPrompt,
 		maxSteps:     subAgentMaxSteps,
 		mode:         p.mode,
+		// Sub-agents compact on their own if a long task fills the window
+		contextWindow: p.contextWindow,
 		onToolCall: func(name, arguments string) {
 			if p.onToolCall != nil {
 				p.onToolCall("subagent:"+name, arguments)

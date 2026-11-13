@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -34,6 +33,7 @@ const (
 	recEntry   = "entry"   // transcript line
 	recInput   = "input"   // user submission
 	recMessage = "message" // agent conversation message
+	recReset   = "reset"   // conversation compacted; later messages replace earlier ones
 	recEnd     = "end"     // clean shutdown
 )
 
@@ -84,16 +84,6 @@ type record struct {
 
 	// message
 	Message json.RawMessage `json:"message,omitempty"`
-}
-
-type Info struct {
-	ID          string
-	Path        string
-	ProjectPath string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	Model       string
-	Mode        string
 }
 
 func NewID() (string, error) {
@@ -174,45 +164,14 @@ func (s *State) apply(r record) {
 	case recMessage:
 		s.Messages = append(s.Messages, r.Message)
 		s.Complete = false
+	case recReset:
+		s.Messages = nil
 	case recEnd:
 		s.Complete = true
 		if r.Mode != "" {
 			s.Mode = r.Mode
 		}
 	}
-}
-
-// Reads just enough of a log to summarize it
-func peek(path string) (*Info, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	info := &Info{
-		ID:   strings.TrimSuffix(filepath.Base(path), Ext),
-		Path: path,
-	}
-	if st, err := f.Stat(); err == nil {
-		info.UpdatedAt = st.ModTime()
-	}
-	sc := scanner(f)
-	for sc.Scan() {
-		var r record
-		if err := json.Unmarshal(sc.Bytes(), &r); err != nil || r.Type != recMeta {
-			continue
-		}
-		if r.ID != "" {
-			info.ID = r.ID
-		}
-		info.ProjectPath, info.Model, info.Mode = r.ProjectPath, r.Model, r.Mode
-		if r.CreatedAt != nil {
-			info.CreatedAt = *r.CreatedAt
-		}
-		return info, nil
-	}
-	return info, nil
 }
 
 // Resolves a full or prefix session ID to a log path, or an error if missing/ambiguous
@@ -247,32 +206,4 @@ func FindByPrefix(prefix string) (string, error) {
 	default:
 		return "", fmt.Errorf("ambiguous session prefix %q (%d matches)", prefix, len(matches))
 	}
-}
-
-// Summarizes the current project's sessions, newest first
-func List() ([]*Info, error) {
-	dir := paths.SessionsDir
-	if dir == "" {
-		return nil, errors.New("session storage is unavailable")
-	}
-	names, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var out []*Info
-	for _, e := range names {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), Ext) {
-			continue
-		}
-		info, err := peek(filepath.Join(dir, e.Name()))
-		if err != nil {
-			continue
-		}
-		out = append(out, info)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
-	return out, nil
 }

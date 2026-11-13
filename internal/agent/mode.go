@@ -35,7 +35,8 @@ func ParseMode(s string) (Mode, error) {
 }
 
 const planModePrompt = "You are in PLAN MODE. Do not modify anything: you may only use read-only tools to investigate " +
-	"(reading files and logs, searching the web, delegating research). Tools that write files, run commands or " +
+	"(reading files and logs, read-only shell commands such as ls, grep, rg, find and git status/log/diff, " +
+	"searching the web, delegating research). Tools that write or edit files, run other commands or " +
 	"kill processes are disabled. Explore as needed, then reply with a clear, step-by-step implementation plan " +
 	"naming the files and changes involved. The user will switch out of plan mode to have it executed."
 
@@ -43,6 +44,7 @@ const planModePrompt = "You are in PLAN MODE. Do not modify anything: you may on
 var planModeTools = map[string]bool{
 	"read_file":      true,
 	"read_logs":      true,
+	"shell_cmd":      true, // read-only commands only, see checkPlanShell
 	"web_search":     true,
 	delegateToolName: true,
 	skills.ToolName:  true,

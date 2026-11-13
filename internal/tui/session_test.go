@@ -50,7 +50,7 @@ func streamReply(m *Model, deltas ...string) {
 }
 
 func TestRoleNamesCoverEveryRole(t *testing.T) {
-	for r := roleUser; r <= roleInfo; r++ {
+	for r := roleUser; r <= roleDiff; r++ {
 		if _, ok := roleNames[r]; !ok {
 			t.Fatalf("role %d has no persisted name", r)
 		}

@@ -10,6 +10,7 @@ const (
 	roleTool
 	roleError
 	roleInfo
+	roleDiff
 )
 
 type entry struct {
@@ -27,6 +28,8 @@ var (
 	titleStyle  lipgloss.Style
 	promptStyle lipgloss.Style
 	inputBox    lipgloss.Style
+	addStyle    lipgloss.Style
+	delStyle    lipgloss.Style
 )
 
 func init() {

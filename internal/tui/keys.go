@@ -79,6 +79,12 @@ func (m *Model) handlePermKey(msg tea.KeyPressMsg, key string) (tea.Model, tea.C
 		return m, cmd
 	}
 	switch key {
+	case "left", "right":
+		step := 8
+		if key == "left" {
+			step = -step
+		}
+		m.marquee, m.scrubbed = max(m.marqueePos()+step, 0), true
 	case "y", "Y", "enter":
 		m.answer("y", "")
 	case "a", "A":

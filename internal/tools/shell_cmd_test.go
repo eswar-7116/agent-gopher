@@ -100,9 +100,7 @@ func TestShellCmd_Execute_PermissionDeniedWithAlt(t *testing.T) {
 func TestShellCmd_WhitelistBypass(t *testing.T) {
 	tool := tools.ShellCmdTool{
 		Permissive: false,
-		WhitelistedCmds: map[string]bool{
-			"echo": true,
-		},
+		Whitelist:  tools.NewWhitelist([]string{"echo"}, nil),
 	}
 
 	result, err := tool.Execute(context.Background(), map[string]any{
@@ -121,11 +119,10 @@ func TestShellCmd_WhitelistBypass(t *testing.T) {
 func TestShellCmd_AlwaysAllow(t *testing.T) {
 	var savedCmd string
 	tool := tools.ShellCmdTool{
-		Permissive:      false,
-		WhitelistedCmds: map[string]bool{},
-		OnWhitelist: func(cmd string) {
+		Permissive: false,
+		Whitelist: tools.NewWhitelist(nil, func(cmd string) {
 			savedCmd = cmd
-		},
+		}),
 	}
 
 	// Simulate user typing 'a' to always allow
@@ -152,11 +149,10 @@ func TestShellCmd_AlwaysAllow(t *testing.T) {
 func TestShellCmd_Subcommand_AlwaysAllow(t *testing.T) {
 	var savedCmd string
 	tool := tools.ShellCmdTool{
-		Permissive:      false,
-		WhitelistedCmds: map[string]bool{},
-		OnWhitelist: func(cmd string) {
+		Permissive: false,
+		Whitelist: tools.NewWhitelist(nil, func(cmd string) {
 			savedCmd = cmd
-		},
+		}),
 	}
 
 	// Simulate user typing 'a' to always allow
@@ -177,9 +173,7 @@ func TestShellCmd_Subcommand_AlwaysAllow(t *testing.T) {
 func TestShellCmd_Subcommand_WhitelistBypass(t *testing.T) {
 	tool := tools.ShellCmdTool{
 		Permissive: false,
-		WhitelistedCmds: map[string]bool{
-			"git status": true,
-		},
+		Whitelist:  tools.NewWhitelist([]string{"git status"}, nil),
 	}
 
 	// Should bypass prompt for git status with args

@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"maps"
+	"slices"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/shared"
@@ -13,24 +15,30 @@ type Tool interface {
 	Execute(ctx context.Context, args map[string]any) (any, error)
 }
 
-// Registry of all available tools
-func Registry(permissiveShell bool, tavilyAPIKey string, whitelistedCmds []string, onWhitelist func(string)) map[string]Tool {
-	whitelistMap := make(map[string]bool, len(whitelistedCmds))
-	for _, cmd := range whitelistedCmds {
-		whitelistMap[cmd] = true
-	}
+type Options struct {
+	PermissiveShell bool
+	PermissiveWrite bool
+	TavilyAPIKey    string
+	WhitelistedCmds []string
+	OnWhitelist     func(string)
+}
 
+// Registry of all available tools
+func Registry(opts Options) map[string]Tool {
+	gate := NewWriteGate(opts.PermissiveWrite)
 	tools := []Tool{
 		ReadFileTool{},
-		WriteFileTool{},
+		WriteFileTool{Gate: gate},
+		EditFileTool{Gate: gate},
 		ShellCmdTool{
-			Permissive:      permissiveShell,
-			WhitelistedCmds: whitelistMap,
-			OnWhitelist:     onWhitelist,
+			Permissive: opts.PermissiveShell,
+			Whitelist:  NewWhitelist(opts.WhitelistedCmds, opts.OnWhitelist),
 		},
 		ReadLogsTool{},
 		KillProcessTool{},
-		NewWebSearchTool(tavilyAPIKey),
+	}
+	if opts.TavilyAPIKey != "" {
+		tools = append(tools, NewWebSearchTool(opts.TavilyAPIKey))
 	}
 
 	registry := make(map[string]Tool, len(tools))
@@ -40,11 +48,12 @@ func Registry(permissiveShell bool, tavilyAPIKey string, whitelistedCmds []strin
 	return registry
 }
 
-// Returns the OpenAI tool definitions for all registered tools
-func Definitions(permissiveShell bool, tavilyAPIKey string, whitelistedCmds []string, onWhitelist func(string)) []openai.ChatCompletionToolUnionParam {
-	defs := make([]openai.ChatCompletionToolUnionParam, 0)
-	for _, t := range Registry(permissiveShell, tavilyAPIKey, whitelistedCmds, onWhitelist) {
-		defs = append(defs, t.Definition())
+// Returns the OpenAI tool definitions sorted by name
+func Definitions(registry map[string]Tool) []openai.ChatCompletionToolUnionParam {
+	names := slices.Sorted(maps.Keys(registry))
+	defs := make([]openai.ChatCompletionToolUnionParam, 0, len(names))
+	for _, n := range names {
+		defs = append(defs, registry[n].Definition())
 	}
 	return defs
 }

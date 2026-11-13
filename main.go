@@ -46,23 +46,24 @@ func main() {
 	}
 	tui.LoadTheme(cfg.Theme)
 
-	client := llm.NewClient(cfg.OpenRouterAPIKey, cfg.BaseURL)
+	client := llm.NewClient(cfg.APIKey, cfg.BaseURL)
 
 	// Connect to configured MCP servers
 	ctx := context.Background()
 	var mcpServers []*mcpclient.MCPServer
+	var startupErrors []string
 	for i := range cfg.MCPServers {
 		server, err := mcpclient.Connect(ctx, &cfg.MCPServers[i])
 		if err != nil {
-			log.Printf("Warning: failed to connect to MCP server %q: %v\n", cfg.MCPServers[i].Name, err)
-			continue
+			startupErrors = append(startupErrors, fmt.Sprintf("MCP server %q failed: %v", cfg.MCPServers[i].Name, err))
 		}
-		mcpServers = append(mcpServers, server)
+		if server != nil {
+			mcpServers = append(mcpServers, server)
+		}
 	}
 
 	onWhitelist := func(cmd string) {
-		cfg.WhitelistedCmds = append(cfg.WhitelistedCmds, cmd)
-		if err := config.Save(cfg); err != nil {
+		if err := config.AddWhitelisted(cmd); err != nil {
 			log.Printf("Warning: failed to save whitelisted command to config: %v\n", err)
 		}
 	}
@@ -71,14 +72,16 @@ func main() {
 		Client:          &client,
 		Model:           cfg.Model,
 		PermissiveShell: cfg.PermissiveShell,
+		PermissiveWrite: cfg.PermissiveWrite,
 		TavilyAPIKey:    cfg.TavilyAPIKey,
+		ContextWindow:   cfg.ContextWindow,
 		MCPServers:      mcpServers,
 		Logger:          log.New(io.Discard, "", 0),
 		WhitelistedCmds: cfg.WhitelistedCmds,
 		OnWhitelist:     onWhitelist,
 	})
 
-	if err := tui.Run(agentGopher, *resumeID); err != nil {
+	if err := tui.Run(agentGopher, *resumeID, startupErrors); err != nil {
 		fmt.Printf("Error running TUI: %v\n", err)
 		os.Exit(1)
 	}

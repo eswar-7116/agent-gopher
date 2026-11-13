@@ -23,16 +23,15 @@ type Agent struct {
 	msgMu    sync.RWMutex
 	messages []openai.ChatCompletionMessageParamUnion
 
-	registry        map[string]tools.Tool
-	toolDefs        []openai.ChatCompletionToolUnionParam
-	model           string
-	permissiveShell bool
-	tavilyAPIKey    string
-	logger          *log.Logger
+	registry map[string]tools.Tool
+	toolDefs []openai.ChatCompletionToolUnionParam
+	model    string
+	logger   *log.Logger
 
 	onToolCall func(name, arguments string)
 	onText     func(text string)
 	onInjected func(texts []string)
+	onNotice   func(text string)
 
 	injectMu sync.Mutex
 	running  bool     // Run is active and accepting injected messages
@@ -46,13 +45,19 @@ type Agent struct {
 	globalMemoryDir  string
 	projectMemoryDir string
 	memorySeen       string
+
+	contextWindow int // tokens; 0 disables compaction
+	usage         usageTracker
+	epoch         int // bumped when compaction replaces the history
 }
 
 type AgentOptions struct {
 	Client          *openai.Client
 	Model           string
 	PermissiveShell bool
+	PermissiveWrite bool
 	TavilyAPIKey    string
+	ContextWindow   int
 	MCPServers      []*mcpclient.MCPServer
 	Logger          *log.Logger
 	WhitelistedCmds []string
@@ -61,30 +66,39 @@ type AgentOptions struct {
 }
 
 func NewAgent(opts AgentOptions) *Agent {
-	registry := tools.Registry(opts.PermissiveShell, opts.TavilyAPIKey, opts.WhitelistedCmds, opts.OnWhitelist)
-	defs := tools.Definitions(opts.PermissiveShell, opts.TavilyAPIKey, opts.WhitelistedCmds, opts.OnWhitelist)
+	registry := tools.Registry(tools.Options{
+		PermissiveShell: opts.PermissiveShell,
+		PermissiveWrite: opts.PermissiveWrite,
+		TavilyAPIKey:    opts.TavilyAPIKey,
+		WhitelistedCmds: opts.WhitelistedCmds,
+		OnWhitelist:     opts.OnWhitelist,
+	})
+	defs := tools.Definitions(registry)
 
 	// Register MCP tools
 	for _, server := range opts.MCPServers {
 		for _, mcpTool := range server.Tools {
 			t := tools.NewMCPTool(server, mcpTool)
+			if _, dup := registry[t.Name()]; dup {
+				opts.Logger.Printf("Skipping MCP tool %q: name already registered\n", t.Name())
+				continue
+			}
 			registry[t.Name()] = t
 			defs = append(defs, t.Definition())
 		}
 	}
 
 	a := &Agent{
-		client:          opts.Client,
-		registry:        registry,
-		toolDefs:        defs,
-		model:           opts.Model,
-		permissiveShell: opts.PermissiveShell,
-		tavilyAPIKey:    opts.TavilyAPIKey,
-		logger:          opts.Logger,
-		onToolCall:      opts.OnToolCall,
+		client:        opts.Client,
+		registry:      registry,
+		toolDefs:      defs,
+		model:         opts.Model,
+		logger:        opts.Logger,
+		onToolCall:    opts.OnToolCall,
+		contextWindow: opts.ContextWindow,
 	}
 
-	var promptParts []string
+	promptParts := []string{basePrompt}
 	if paths.ProjectPath != "" {
 		if p := loadAgentsMD(paths.ProjectPath, opts.Logger); p != "" {
 			promptParts = append(promptParts, p)
@@ -153,6 +167,11 @@ func (a *Agent) currentMemory() string {
 	return global + "\n\n" + project
 }
 
+// Sets a callback for status notices such as compaction
+func (a *Agent) SetNoticeCallback(fn func(text string)) {
+	a.onNotice = fn
+}
+
 // Sets a callback fired when injected messages enter the conversation
 func (a *Agent) SetInjectedCallback(fn func(texts []string)) {
 	a.onInjected = fn
@@ -217,32 +236,34 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 	}
 
 	if a.messageCount() == 0 {
-		var preamble []openai.ChatCompletionMessageParamUnion
-		if a.systemPrompt != "" {
-			preamble = append(preamble, openai.SystemMessage(a.systemPrompt))
-		}
-		if a.memorySeen != "" {
-			preamble = append(preamble, openai.SystemMessage(a.memorySeen))
-		}
-		if a.mode == ModePlan {
-			preamble = append(preamble, openai.SystemMessage(planModePrompt))
-		}
-		a.appendMessages(preamble...)
+		a.appendMessages(a.preamble()...)
 	}
 	a.appendMessages(openai.UserMessage(userPrompt))
 
 	params := openai.ChatCompletionNewParams{
 		Model: openai.ChatModel(a.model),
 		Tools: filterDefs(a.mode, a.toolDefs),
+		StreamOptions: openai.ChatCompletionStreamOptionsParam{
+			IncludeUsage: openai.Bool(true),
+		},
 	}
 
 	for step := 0; ; step++ {
 		if a.maxSteps > 0 && step >= a.maxSteps {
 			return fmt.Errorf("exceeded %d steps without finishing", a.maxSteps)
 		}
+		a.updateContextEstimate()
+		if a.needsCompaction() {
+			if err := a.Compact(ctx); err != nil {
+				if ctx.Err() != nil {
+					return err
+				}
+				a.logger.Printf("Compaction failed: %v\n", err)
+			}
+		}
 		a.logger.Println("Sending messages to LLM...")
 		params.Messages = a.GetMessages()
-		msg, err := a.complete(ctx, params)
+		msg, tokens, err := a.complete(ctx, params, true)
 		if err != nil {
 			// Keep the partial reply so the model knows where it was interrupted
 			if ctx.Err() != nil && msg.Content != "" {
@@ -251,6 +272,11 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 			return err
 		}
 		a.appendMessages(msg.ToParam())
+		if tokens > 0 {
+			a.usage.observe(tokens)
+		}
+		a.usage.record(a.messageCount())
+		a.updateContextEstimate()
 
 		if len(msg.ToolCalls) == 0 {
 			// Keep going if messages were injected while answering
@@ -273,6 +299,7 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 			toolResult := a.executeToolCall(ctx, name, arguments)
 			a.appendMessages(openai.ToolMessage(toolResult, toolCall.ID))
 		}
+		a.updateContextEstimate()
 		if ctx.Err() == nil {
 			a.takeInjected(false)
 		}
@@ -281,8 +308,8 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 	return nil
 }
 
-// complete performs one streamed LLM round-trip, forwarding text deltas to onText as they arrive.
-func (a *Agent) complete(ctx context.Context, params openai.ChatCompletionNewParams) (openai.ChatCompletionMessage, error) {
+// Performs one streamed LLM round-trip, forwarding text deltas to onText if emit; also returns reported total tokens
+func (a *Agent) complete(ctx context.Context, params openai.ChatCompletionNewParams, emit bool) (openai.ChatCompletionMessage, int, error) {
 	stream := a.client.Chat.Completions.NewStreaming(ctx, params)
 	defer stream.Close()
 
@@ -290,21 +317,22 @@ func (a *Agent) complete(ctx context.Context, params openai.ChatCompletionNewPar
 	for stream.Next() {
 		chunk := stream.Current()
 		acc.AddChunk(chunk)
-		if a.onText != nil && len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
+		if emit && a.onText != nil && len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
 			a.onText(chunk.Choices[0].Delta.Content)
 		}
 	}
+	tokens := int(acc.Usage.TotalTokens)
 	if err := stream.Err(); err != nil {
 		var partial openai.ChatCompletionMessage
 		if len(acc.Choices) > 0 {
 			partial.Content = acc.Choices[0].Message.Content
 		}
-		return partial, fmt.Errorf("chat completion failed: %w", err)
+		return partial, tokens, fmt.Errorf("chat completion failed: %w", err)
 	}
 	if len(acc.Choices) == 0 {
-		return openai.ChatCompletionMessage{}, fmt.Errorf("chat completion failed: empty response")
+		return openai.ChatCompletionMessage{}, tokens, fmt.Errorf("chat completion failed: empty response")
 	}
-	return acc.Choices[0].Message, nil
+	return acc.Choices[0].Message, tokens, nil
 }
 
 func (a *Agent) executeToolCall(ctx context.Context, name, arguments string) string {
@@ -320,14 +348,29 @@ func (a *Agent) executeToolCall(ctx context.Context, name, arguments string) str
 	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
 		return fmt.Sprintf("Error: failed to parse arguments: %v", err)
 	}
+	if err := checkPlanShell(a.mode, name, args); err != nil {
+		return "Error: " + err.Error()
+	}
 
 	result, err := tool.Execute(ctx, args)
 	if err != nil {
 		a.logger.Printf("Tool %s returned an error: %v\n", name, err)
+		// Keep output alongside the error so the model can see why it failed
+		if out := strings.TrimSpace(serializeResult(result)); out != "" {
+			return capOutput(fmt.Sprintf("Error: %v\n\nOutput:\n%s", err, out))
+		}
 		return fmt.Sprintf("Error: %v", err)
 	}
 
-	return serialize(result)
+	return capOutput(serialize(result))
+}
+
+// Serializes a possibly nil tool result
+func serializeResult(v any) string {
+	if v == nil {
+		return ""
+	}
+	return serialize(v)
 }
 
 func serialize(v any) string {
@@ -355,7 +398,7 @@ func (a *Agent) appendMessages(msgs ...openai.ChatCompletionMessageParamUnion) {
 	a.messages = append(a.messages, msgs...)
 }
 
-// Replaces the conversation history with messages saved by MessagesJSONFrom
+// Replaces the conversation history with messages saved by LogTail
 func (a *Agent) Restore(raw []json.RawMessage) error {
 	msgs := make([]openai.ChatCompletionMessageParamUnion, 0, len(raw))
 	for i, r := range raw {
@@ -368,6 +411,8 @@ func (a *Agent) Restore(raw []json.RawMessage) error {
 	a.msgMu.Lock()
 	a.messages = msgs
 	a.msgMu.Unlock()
+	a.usage.reset()
+	a.updateContextEstimate()
 
 	// Announce memory on the next run only if it changed since the model last saw it
 	a.memorySeen = ""
@@ -400,9 +445,14 @@ func (a *Agent) GetMessages() []openai.ChatCompletionMessageParamUnion {
 	return messages
 }
 
-// Returns the messages from a given index, each encoded as JSON
-func (a *Agent) MessagesJSONFrom(from int) ([]json.RawMessage, error) {
+// Returns messages from index from, each encoded as JSON, and the current epoch;
+// if epoch is stale the history was compacted, so all messages are returned
+func (a *Agent) LogTail(epoch, from int) ([]json.RawMessage, int, error) {
 	a.msgMu.RLock()
+	cur := a.epoch
+	if epoch != cur {
+		from = 0
+	}
 	var tail []openai.ChatCompletionMessageParamUnion
 	if from < len(a.messages) {
 		tail = append(tail, a.messages[max(from, 0):]...)
@@ -413,11 +463,11 @@ func (a *Agent) MessagesJSONFrom(from int) ([]json.RawMessage, error) {
 	for _, msg := range tail {
 		b, err := json.Marshal(msg)
 		if err != nil {
-			return nil, fmt.Errorf("encode message: %w", err)
+			return nil, cur, fmt.Errorf("encode message: %w", err)
 		}
 		out = append(out, b)
 	}
-	return out, nil
+	return out, cur, nil
 }
 
 // Returns the content of the last assistant message

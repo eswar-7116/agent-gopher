@@ -116,7 +116,7 @@ func TestRestoreKeepsToolCallsAndDoesNotRepeatMemory(t *testing.T) {
 		}},
 		openai.ToolMessage("contents", "call_1"),
 	)
-	saved, err := first.MessagesJSONFrom(0)
+	saved, _, err := first.LogTail(0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestRestoreKeepsToolCallsAndDoesNotRepeatMemory(t *testing.T) {
 	if err := resumed.Restore(saved); err != nil {
 		t.Fatalf("Restore: %v", err)
 	}
-	again, err := resumed.MessagesJSONFrom(0)
+	again, _, err := resumed.LogTail(0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

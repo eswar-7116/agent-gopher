@@ -89,6 +89,11 @@ func (w *Writer) AppendMessage(msg json.RawMessage) {
 	w.queue(record{Type: recMessage, Message: msg})
 }
 
+// Queues a marker that discards earlier agent messages
+func (w *Writer) AppendReset() {
+	w.queue(record{Type: recReset, At: time.Now()})
+}
+
 func (w *Writer) queue(r record) {
 	w.mu.Lock()
 	defer w.mu.Unlock()

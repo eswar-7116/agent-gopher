@@ -25,8 +25,28 @@ func NewMCPTool(server *mcpclient.MCPServer, tool *mcp.Tool) MCPTool {
 	return MCPTool{
 		server:   server,
 		tool:     tool,
-		toolName: prefix + "__" + tool.Name,
+		toolName: SanitizeToolName(prefix + "__" + tool.Name),
 	}
+}
+
+// Max tool name length accepted by OpenAI-compatible APIs
+const maxToolNameLen = 64
+
+// Maps a name onto ^[a-zA-Z0-9_-]{1,64}$
+func SanitizeToolName(name string) string {
+	b := []byte(name)
+	for i, c := range b {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+			b[i] = '_'
+		}
+	}
+	if len(b) > maxToolNameLen {
+		b = b[:maxToolNameLen]
+	}
+	if len(b) == 0 {
+		return "mcp_tool"
+	}
+	return string(b)
 }
 
 func (m MCPTool) Name() string {

@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.0.10
+	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0

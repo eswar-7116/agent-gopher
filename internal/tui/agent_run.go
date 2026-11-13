@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/eswar-7116/agent-gopher/internal/tools"
 )
 
 // Resolves the pending permission request and restores normal input.
@@ -13,8 +14,13 @@ func (m *Model) answer(choice, alt string) {
 	if m.perm == nil {
 		return
 	}
-	verb := map[string]string{"y": "allowed", "a": "always allowed", "n": "denied"}[choice]
-	m.add(roleInfo, fmt.Sprintf("Command %s: %s", verb, truncate(m.perm.cmd, 200)))
+	if m.perm.Kind == tools.PermWrite {
+		verb := map[string]string{"y": "allowed", "a": "allowed (all writes this session)", "n": "denied"}[choice]
+		m.add(roleInfo, fmt.Sprintf("Write %s: %s", verb, m.perm.Path))
+	} else {
+		verb := map[string]string{"y": "allowed", "a": "always allowed", "n": "denied"}[choice]
+		m.add(roleInfo, fmt.Sprintf("Command %s: %s", verb, truncate(m.perm.Command, 200)))
+	}
 	m.perm.reply <- permReply{choice, alt}
 	m.perm, m.askingAlt = nil, false
 	m.input.Reset()
@@ -46,6 +52,16 @@ func (m *Model) restoreQueue() {
 	m.input.SetValue(strings.TrimSpace(strings.Join(q, " ")))
 	m.input.CursorEnd()
 	m.layout()
+}
+
+// Compacts the conversation
+func (m *Model) startCompact() {
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancel, m.running = cancel, true
+	ag, p := m.agent, m.prog
+	go func() {
+		p.Send(compactDoneMsg{err: ag.Compact(ctx)})
+	}()
 }
 
 // Runs the agent on text in a goroutine and reports completion via doneMsg.

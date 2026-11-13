@@ -2,14 +2,18 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 
 	"github.com/openai/openai-go/v3"
 )
 
 // WriteFileTool implements Tool for writing/appending files.
-type WriteFileTool struct{}
+type WriteFileTool struct {
+	Gate *WriteGate
+}
 
 func (WriteFileTool) Name() string { return "write_file" }
 
@@ -35,7 +39,7 @@ func (w WriteFileTool) Definition() openai.ChatCompletionToolUnionParam {
 	})
 }
 
-func (WriteFileTool) Execute(ctx context.Context, args map[string]any) (any, error) {
+func (w WriteFileTool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	fpath, ok := args["filepath"].(string)
 	if !ok {
 		return nil, fmt.Errorf("missing or invalid 'filepath' argument")
@@ -45,6 +49,18 @@ func (WriteFileTool) Execute(ctx context.Context, args map[string]any) (any, err
 		return nil, fmt.Errorf("missing or invalid 'contents' argument")
 	}
 	appendFlag, _ := args["append"].(bool)
+
+	before, err := os.ReadFile(fpath)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	after := contents
+	if appendFlag {
+		after = string(before) + contents
+	}
+	if err := w.Gate.Approve(fpath, UnifiedDiff(fpath, string(before), after)); err != nil {
+		return nil, err
+	}
 
 	flag := os.O_CREATE | os.O_WRONLY
 	if appendFlag {

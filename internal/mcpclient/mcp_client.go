@@ -57,15 +57,14 @@ func Connect(ctx context.Context, server *config.MCPServerConfig) (*MCPServer, e
 	}
 	mcpServer.clientSession = cs
 
-	err = mcpServer.loadTools(ctx)
-	if err != nil {
-		cs.Close()
-		return nil, err
-	}
-
+	// Registered before listing tools so the session stays open and is closed on exit
 	serversMu.Lock()
 	servers = append(servers, mcpServer)
 	serversMu.Unlock()
+
+	if err := mcpServer.loadTools(ctx); err != nil {
+		return mcpServer, fmt.Errorf("list tools: %w", err)
+	}
 
 	return mcpServer, nil
 }

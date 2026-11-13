@@ -14,6 +14,7 @@ var slashCmds = []slashCmd{
 	{"/plan", "Switch to plan mode (read-only)"},
 	{"/normal", "Switch to normal mode"},
 	{"/theme", "Set theme: /theme <name> (no arg lists available themes)"},
+	{"/compact", "Summarize the conversation to free up context"},
 	{"/gopher", "Memory: /gopher memory [global|project] | remember [global|project] <fact> | forget [global|project] <n|text>"},
 	{"/exit", "Quit Agent Gopher"},
 	{"/quit", "Quit Agent Gopher"},
@@ -80,6 +81,11 @@ func (m *Model) runSlash(text string) bool {
 		m.input.Reset()
 		m.layout()
 		m.runThemeCmd(fields[1:])
+		return true
+	case "/compact":
+		m.input.Reset()
+		m.layout()
+		m.startCompact()
 		return true
 	case "/gopher":
 		m.input.Reset()

@@ -135,6 +135,8 @@ func applyTheme() {
 	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(t.Title))
 	promptStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(t.Prompt)).Padding(0, 1)
 	inputBox = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(t.InputBorder)).Padding(0, 1)
+	addStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.User))
+	delStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Error))
 }
 
 func rebuildThemeList() {

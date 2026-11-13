@@ -19,6 +19,7 @@ var roleNames = map[role]string{
 	roleTool:      "tool",
 	roleError:     "error",
 	roleInfo:      "info",
+	roleDiff:      "diff",
 }
 
 var (
@@ -123,9 +124,14 @@ func (m *Model) flushSession() (string, error) {
 	m.sealLocked()
 	m.stateMu.Unlock()
 
-	msgs, err := m.agent.MessagesJSONFrom(m.loggedMessages)
+	msgs, epoch, err := m.agent.LogTail(m.loggedEpoch, m.loggedMessages)
 	if err != nil {
 		return "", err
+	}
+	// Compaction replaced the history, so the log restarts from here
+	if epoch != m.loggedEpoch {
+		m.log.AppendReset()
+		m.loggedEpoch, m.loggedMessages = epoch, 0
 	}
 	for _, msg := range msgs {
 		m.log.AppendMessage(msg)

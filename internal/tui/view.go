@@ -2,12 +2,14 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/eswar-7116/agent-gopher/internal/agent"
+	"github.com/eswar-7116/agent-gopher/internal/tools"
 )
 
 func (m *Model) add(r role, content string) {
@@ -86,6 +88,10 @@ func (m *Model) refresh() {
 			b.WriteString(errorStyle.Width(w).Render("✗ " + e.content))
 			b.WriteString("\n\n")
 			continue
+		case roleDiff:
+			b.WriteString(renderDiff(e.content, w))
+			b.WriteString("\n\n")
+			continue
 		default:
 			b.WriteString(dimStyle.Width(w).Render(e.content))
 			b.WriteString("\n\n")
@@ -150,29 +156,139 @@ func (m *Model) statusLine() string {
 		if m.askingAlt {
 			return "Enter send alternative · Esc skip"
 		}
+		if m.perm.Kind == tools.PermWrite {
+			return "y allow · a allow all writes this session · n deny · PgUp/PgDn review diff"
+		}
+		if m.commandOverflows() {
+			return "y allow · a always allow · n deny · ←/→ scroll command"
+		}
 		return "y allow · a always allow · n deny"
 	}
 	modeTag := ""
 	if m.agent.Mode() == agent.ModePlan {
 		modeTag = "[PLAN] "
 	}
-	if m.urgent {
-		return modeTag + "Interrupting…"
+	var hint string
+	switch {
+	case m.urgent:
+		hint = "Interrupting…"
+	case m.running:
+		hint = "Enter queue · Alt+Enter interrupt & send · Esc/Ctrl+C cancel"
+	default:
+		hint = "/ commands · Enter send · ↑/↓ history · PgUp/PgDn scroll · Ctrl+C quit"
 	}
-	if m.running {
-		return modeTag + "Enter queue · Alt+Enter interrupt & send · Esc/Ctrl+C cancel"
+	return modeTag + hint + m.contextUsage()
+}
+
+// Formats context usage for the status line
+func (m *Model) contextUsage() string {
+	used, window := m.agent.ContextTokens(), m.agent.ContextWindow()
+	if used == 0 {
+		return ""
 	}
-	return modeTag + "/ commands · Enter send · ↑/↓ history · PgUp/PgDn scroll · Ctrl+C quit"
+	if window <= 0 {
+		return " · ctx " + formatTokens(used)
+	}
+	return fmt.Sprintf(" · ctx %s/%s (%d%%)", formatTokens(used), formatTokens(window), used*100/window)
+}
+
+func formatTokens(n int) string {
+	if n < 1000 {
+		return strconv.Itoa(n)
+	}
+	return strconv.FormatFloat(float64(n)/1000, 'f', 1, 64) + "k"
 }
 
 // Renders the pending permission request box
 func (m *Model) permPrompt() string {
+	box := promptStyle.Width(max(m.width-2, 10))
+	if m.perm.Kind == tools.PermWrite {
+		added, removed := tools.DiffStat(m.perm.Diff)
+		return box.Render(toolStyle.Render("Write file?") + "\n" +
+			truncate(fmt.Sprintf("%s (+%d −%d, diff shown above)", m.perm.Path, added, removed), m.commandWidth()))
+	}
 	kind := "command"
-	if m.perm.background {
+	if m.perm.Background {
 		kind = "background command"
 	}
-	return promptStyle.Width(max(m.width-2, 10)).Render(
-		toolStyle.Render("Run "+kind+"?") + "\n" + truncate(m.perm.cmd, 400))
+	return box.Render(toolStyle.Render("Run "+kind+"?") + "\n" + marquee(flattenCommand(m.perm.Command), m.commandWidth(), m.marqueePos()))
+}
+
+// Width available for the command inside the prompt box
+func (m *Model) commandWidth() int {
+	return max(m.width-6, 10)
+}
+
+func (m *Model) commandOverflows() bool {
+	return m.perm != nil && len([]rune(flattenCommand(m.perm.Command))) > m.commandWidth()
+}
+
+const marqueePause = 15
+
+// Returns the marquee offset
+func (m *Model) marqueePos() int {
+	if m.scrubbed {
+		return m.marquee
+	}
+	n := len([]rune(flattenCommand(m.perm.Command))) + len([]rune(marqueeGap))
+	pos := m.marquee % (n + marqueePause)
+	return max(pos-marqueePause, 0)
+}
+
+const marqueeGap = "   ⋯   "
+
+// Shows newlines and tabs visibly so nothing in the command is hidden
+func flattenCommand(cmd string) string {
+	return strings.NewReplacer("\r\n", " ⏎ ", "\n", " ⏎ ", "\r", " ⏎ ", "\t", " ").Replace(cmd)
+}
+
+// Returns a width-wide window of s starting at pos, wrapping around
+func marquee(s string, width, pos int) string {
+	r := []rune(s)
+	if len(r) <= width {
+		return s
+	}
+	loop := append(r, []rune(marqueeGap)...)
+	out := make([]rune, width)
+	for i := range out {
+		out[i] = loop[(pos+i)%len(loop)]
+	}
+	return string(out)
+}
+
+// Max diff lines shown in the transcript
+const maxDiffLines = 400
+
+// Colors a unified diff line by line
+func renderDiff(diff string, w int) string {
+	lines := strings.Split(diff, "\n")
+	extra := 0
+	if len(lines) > maxDiffLines {
+		extra = len(lines) - maxDiffLines
+		lines = lines[:maxDiffLines]
+	}
+	var b strings.Builder
+	for i, l := range lines {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		style := dimStyle
+		switch {
+		case strings.HasPrefix(l, "+++"), strings.HasPrefix(l, "---"), strings.HasPrefix(l, "@@"):
+		case strings.HasPrefix(l, "+"):
+			style = addStyle
+		case strings.HasPrefix(l, "-"):
+			style = delStyle
+		}
+		b.WriteString(style.Width(w).Render(l))
+	}
+	if extra > 0 {
+		fmt.Fprintf(&b, "\n%s", dimStyle.Render(fmt.Sprintf("… %d more lines", extra)))
+	}
+	if diff == "" {
+		b.WriteString(dimStyle.Render("(no changes)"))
+	}
+	return b.String()
 }
 
 // Renders messages waiting for the current run to finish

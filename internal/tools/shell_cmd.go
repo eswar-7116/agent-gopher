@@ -1,11 +1,9 @@
 package tools
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -25,12 +23,8 @@ type BackgroundProcess struct {
 }
 
 var (
-	BgProcesses       = map[string]*BackgroundProcess{}
-	BgProcessesMu     sync.Mutex
-	UseStdinForPrompt = false // used for testing
-
-	// It returns "y", "a" or "n" plus an optional alternative instruction on denial.
-	PromptPermission func(cmd string, background bool) (choice, alt string)
+	BgProcesses   = map[string]*BackgroundProcess{}
+	BgProcessesMu sync.Mutex
 )
 
 var subcommandTools = map[string]bool{
@@ -52,9 +46,8 @@ var subcommandTools = map[string]bool{
 
 // ShellCmdTool implements Tool for executing shell commands
 type ShellCmdTool struct {
-	Permissive      bool
-	WhitelistedCmds map[string]bool
-	OnWhitelist     func(cmd string)
+	Permissive bool
+	Whitelist  *Whitelist
 }
 
 func (ShellCmdTool) Name() string {
@@ -96,8 +89,19 @@ func extractPrefix(cmdStr string) string {
 	return fields[0]
 }
 
+var shellOperators = []string{";", "&", "|", "`", "$(", ">", "<", "\n", "\r"}
+
+func hasShellOperators(cmdStr string) bool {
+	for _, op := range shellOperators {
+		if strings.Contains(cmdStr, op) {
+			return true
+		}
+	}
+	return false
+}
+
 func isWhitelisted(cmdStr string, whitelistedCmds map[string]bool) bool {
-	if len(whitelistedCmds) == 0 {
+	if len(whitelistedCmds) == 0 || hasShellOperators(cmdStr) {
 		return false
 	}
 
@@ -118,6 +122,62 @@ func isWhitelisted(cmdStr string, whitelistedCmds map[string]bool) bool {
 	return false
 }
 
+// Commands that only read (for plan mode)
+var readOnlyCmds = map[string]bool{
+	"ls": true, "cat": true, "head": true, "tail": true, "wc": true, "pwd": true,
+	"grep": true, "egrep": true, "fgrep": true, "rg": true, "find": true, "tree": true,
+	"file": true, "stat": true, "du": true, "which": true, "diff": true, "cut": true,
+	"sort": true, "basename": true, "dirname": true, "realpath": true, "echo": true,
+}
+
+var readOnlyGitCmds = map[string]bool{
+	"status": true, "log": true, "diff": true, "show": true, "blame": true,
+	"ls-files": true, "grep": true, "rev-parse": true,
+}
+
+// Flags that make an otherwise read-only command write or execute
+var unsafeFlags = map[string][]string{
+	"find": {"-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"},
+	"rg":   {"--pre"},
+	"sort": {"-o", "--output"},
+	"tree": {"-o"},
+	"git":  {"--output", "-o"},
+}
+
+// Reports whether cmdStr only reads
+func ReadOnlyCommand(cmdStr string) bool {
+	if strings.Contains(cmdStr, "||") || hasShellOperators(strings.ReplaceAll(cmdStr, "|", "")) {
+		return false
+	}
+	for seg := range strings.SplitSeq(cmdStr, "|") {
+		fields := strings.Fields(seg)
+		if len(fields) == 0 || !readOnlyCmds[fields[0]] && fields[0] != "git" {
+			return false
+		}
+		if fields[0] == "git" && !readOnlyGitCmds[gitSubcommand(fields)] {
+			return false
+		}
+		for _, f := range fields[1:] {
+			for _, bad := range unsafeFlags[fields[0]] {
+				if f == bad || strings.HasPrefix(f, bad+"=") || len(bad) == 2 && strings.HasPrefix(f, bad) {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+// Returns the first non-flag argument of a git command
+func gitSubcommand(fields []string) string {
+	for _, f := range fields[1:] {
+		if !strings.HasPrefix(f, "-") {
+			return f
+		}
+	}
+	return ""
+}
+
 func (s ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	cmdStr, ok := args["cmd"].(string)
 	if !ok {
@@ -125,78 +185,18 @@ func (s ShellCmdTool) Execute(ctx context.Context, args map[string]any) (any, er
 	}
 	background, _ := args["background"].(bool)
 
-	if s.Permissive || isWhitelisted(cmdStr, s.WhitelistedCmds) {
-		if background {
-			return runBackground(cmdStr)
+	if !s.Permissive && !s.Whitelist.Allows(cmdStr) {
+		choice, alt, err := askPermission(PermissionRequest{Kind: PermShell, Command: cmdStr, Background: background})
+		if err != nil {
+			return nil, err
 		}
-		return runForeground(ctx, cmdStr)
-	}
-
-	if PromptPermission != nil {
-		choice, alt := PromptPermission(cmdStr, background)
 		switch choice {
 		case "a":
-			if s.OnWhitelist != nil {
-				s.OnWhitelist(extractPrefix(cmdStr))
-			}
+			s.Whitelist.Add(cmdStr)
 		case "y":
 		default:
-			if alt != "" {
-				return nil, fmt.Errorf("user denied permission for command(%s). The following instruction was provided by the user as an alternative: %s", cmdStr, alt)
-			}
-			return nil, fmt.Errorf("user denied permission for command(%s)", cmdStr)
+			return nil, deniedError("command("+cmdStr+")", alt)
 		}
-		if background {
-			return runBackground(cmdStr)
-		}
-		return runForeground(ctx, cmdStr)
-	}
-
-	// Ask user permission
-	var reader io.Reader
-	if UseStdinForPrompt {
-		reader = os.Stdin
-	} else {
-		tty, err := os.Open(ttyPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open tty: %v", err)
-		}
-		defer tty.Close()
-		reader = tty
-	}
-
-	kind := "command"
-	if background {
-		kind = "background command"
-	}
-	fmt.Printf("Agent wants to execute %s %q in your shell. [y]es / [N]o / [a]lways allow: ", kind, cmdStr)
-
-	var permission string
-	ttyScanner := bufio.NewScanner(reader)
-	if ttyScanner.Scan() {
-		permission = strings.TrimSpace(strings.ToLower(ttyScanner.Text()))
-	}
-
-	if permission == "a" || permission == "always" {
-		if s.OnWhitelist != nil {
-			s.OnWhitelist(extractPrefix(cmdStr))
-		}
-		if background {
-			return runBackground(cmdStr)
-		}
-		return runForeground(ctx, cmdStr)
-	}
-
-	if permission != "y" && permission != "yes" {
-		fmt.Print("Command denied. What should the agent do instead? (Press Enter to skip): ")
-		var altInstruction string
-		if ttyScanner.Scan() {
-			altInstruction = strings.TrimSpace(ttyScanner.Text())
-		}
-		if altInstruction != "" {
-			return nil, fmt.Errorf("user denied permission for command(%s). The following instruction was provided by the user as an alternative: %s", cmdStr, altInstruction)
-		}
-		return nil, fmt.Errorf("user denied permission for command(%s)", cmdStr)
 	}
 
 	if background {

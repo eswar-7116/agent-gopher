@@ -298,39 +298,6 @@ func TestConcurrentAppendAndFlush(t *testing.T) {
 	}
 }
 
-func TestListSummarizesNewestFirstAndSkipsJunk(t *testing.T) {
-	isolateHome(t)
-	for _, id := range []string{"older", "newer"} {
-		w := newTestWriter(t, id)
-		w.Arm()
-		w.AppendEntry("assistant", "hi", time.Time{})
-		if err := w.Close("normal"); err != nil {
-			t.Fatalf("Close %s: %v", id, err)
-		}
-	}
-	old := time.Now().Add(-time.Hour)
-	if err := os.Chtimes(Path("older"), old, old); err != nil {
-		t.Fatalf("Chtimes: %v", err)
-	}
-	dir := paths.SessionsDir
-	os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("ignored"), 0o600)
-	os.WriteFile(filepath.Join(dir, "old-format.json"), []byte("{}"), 0o600)
-
-	list, err := List()
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	if len(list) != 2 {
-		t.Fatalf("got %d sessions, want 2: %+v", len(list), list)
-	}
-	if list[0].ID != "newer" || list[1].ID != "older" {
-		t.Fatalf("order = %q, %q; want newer, older", list[0].ID, list[1].ID)
-	}
-	if list[0].Model != "m1" || list[0].ProjectPath != "/tmp/proj" || list[0].CreatedAt.IsZero() {
-		t.Fatalf("summary not read from meta: %+v", list[0])
-	}
-}
-
 func TestReopenAppendsToTheSameLog(t *testing.T) {
 	isolateHome(t)
 	w := newTestWriter(t, "resumable")
@@ -455,14 +422,21 @@ func TestFindByPrefixAmbiguous(t *testing.T) {
 	}
 }
 
-func TestListOnMissingDirIsEmpty(t *testing.T) {
-	paths.InitWithBase(t.TempDir(), "/tmp/never-used")
-	t.Cleanup(func() { paths.InitWithBase("", "") })
-	list, err := List()
-	if err != nil {
-		t.Fatalf("List: %v", err)
+func TestResetDropsEarlierMessages(t *testing.T) {
+	isolateHome(t)
+	w := newTestWriter(t, "compacted")
+	w.Arm()
+	w.AppendMessage(json.RawMessage(`{"role":"user","content":"old"}`))
+	w.AppendReset()
+	w.AppendMessage(json.RawMessage(`{"role":"user","content":"summary"}`))
+	if err := w.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
 	}
-	if len(list) != 0 {
-		t.Fatalf("got %d sessions, want 0", len(list))
+	s, err := Load(Path("compacted"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(s.Messages) != 1 || !strings.Contains(string(s.Messages[0]), "summary") {
+		t.Fatalf("messages = %s, want only the summary", s.Messages)
 	}
 }
