@@ -8,7 +8,7 @@ import (
 
 func BenchmarkRegistryInitialization(b *testing.B) {
 	for b.Loop() {
-		_ = Registry(false, "", nil, nil)
+		_ = Registry(Options{})
 	}
 }
 
@@ -21,8 +21,11 @@ func BenchmarkReadFile_Small(b *testing.B) {
 	f.Close()
 	defer os.Remove(f.Name())
 
-	args := map[string]any{"path": f.Name()}
+	args := map[string]any{"filepath": f.Name()}
 
+	if _, err := tool.Execute(ctx, args); err != nil {
+		b.Fatal(err)
+	}
 	for b.Loop() {
 		_, _ = tool.Execute(ctx, args)
 	}
@@ -36,10 +39,13 @@ func BenchmarkWriteFile_Small(b *testing.B) {
 	defer os.Remove(f)
 
 	args := map[string]any{
-		"path":    f,
-		"content": "hello world",
+		"filepath": f,
+		"contents": "hello world",
 	}
 
+	if _, err := tool.Execute(ctx, args); err != nil {
+		b.Fatal(err)
+	}
 	for b.Loop() {
 		_, _ = tool.Execute(ctx, args)
 	}
@@ -50,6 +56,9 @@ func BenchmarkShellCmd_Echo(b *testing.B) {
 	ctx := context.Background()
 	args := map[string]any{"cmd": "echo hello"}
 
+	if _, err := tool.Execute(ctx, args); err != nil {
+		b.Fatal(err)
+	}
 	for b.Loop() {
 		_, _ = tool.Execute(ctx, args)
 	}
