@@ -21,7 +21,8 @@ type entry struct {
 // Styles are set by applyTheme()
 var (
 	userStyle   lipgloss.Style
-	agentStyle  lipgloss.Style
+	userLabel   lipgloss.Style
+	agentLabel  lipgloss.Style
 	toolStyle   lipgloss.Style
 	errorStyle  lipgloss.Style
 	dimStyle    lipgloss.Style

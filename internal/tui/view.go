@@ -27,6 +27,15 @@ func (m *Model) add(r role, content string) {
 	m.refresh()
 }
 
+// Shows an entry without saving it to the session log
+func (m *Model) show(r role, content string) {
+	m.stateMu.Lock()
+	m.sealLocked()
+	m.entries = append(m.entries, entry{r, content})
+	m.stateMu.Unlock()
+	m.refresh()
+}
+
 // Appends streamed text to the entry in progress
 func (m *Model) appendToLast(content string) bool {
 	m.stateMu.Lock()
@@ -72,14 +81,15 @@ func (m *Model) refresh() {
 	if hasEntries {
 		lastRole = entries[len(entries)-1].role
 	}
+	seen := map[string]bool{}
 	for _, e := range entries {
 		var label string
 		var style lipgloss.Style
 		switch e.role {
 		case roleUser:
-			label, style = "You", userStyle
+			label, style = "You", userLabel
 		case roleAssistant:
-			label, style = "Agent", agentStyle
+			label, style = "Agent", agentLabel
 		case roleTool:
 			b.WriteString(toolStyle.Width(w).Render("⚙ " + e.content))
 			b.WriteString("\n\n")
@@ -99,10 +109,16 @@ func (m *Model) refresh() {
 		}
 		b.WriteString(style.Render(label))
 		b.WriteString("\n")
-		b.WriteString(lipgloss.NewStyle().Width(w).Render(e.content))
+		if e.role == roleAssistant {
+			seen[e.content] = true
+			b.WriteString(m.md.render(e.content, w))
+		} else {
+			b.WriteString(lipgloss.NewStyle().Width(w).Render(e.content))
+		}
 		b.WriteString("\n\n")
 	}
 	m.stateMu.RUnlock()
+	m.md.prune(seen)
 
 	if m.running && m.perm == nil {
 		b.WriteString(dimStyle.Render(m.spinner.View() + " working…"))

@@ -53,6 +53,8 @@ type Model struct {
 
 	sugIdx int // selected slash-command suggestion
 
+	md mdRenderer // markdown renderer
+
 	// theme picker
 	themeMenu []string
 	themeIdx  int

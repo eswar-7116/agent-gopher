@@ -10,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/eswar-7116/agent-gopher/internal/paths"
+	"github.com/lucasb-eyer/go-colorful"
 )
 
 var (
@@ -57,6 +58,7 @@ func writeThemeFile(path string, t Theme) error {
 		"border=" + t.Border,
 		"prompt=" + t.Prompt,
 		"input_border=" + t.InputBorder,
+		"code=" + t.Code,
 	}
 	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0644)
 }
@@ -120,6 +122,8 @@ func readThemeFile(name string) (Theme, error) {
 			t.Prompt = val
 		case "input_border":
 			t.InputBorder = val
+		case "code":
+			t.Code = val
 		}
 	}
 	return t, scanner.Err()
@@ -128,7 +132,8 @@ func readThemeFile(name string) (Theme, error) {
 func applyTheme() {
 	t := activeTheme
 	userStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(t.User))
-	agentStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(t.Agent))
+	userLabel = badge(t.User)
+	agentLabel = badge(t.Agent)
 	toolStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Tool))
 	errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Error))
 	dimStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Dim))
@@ -166,4 +171,21 @@ func rebuildThemeList() {
 
 func AvailableThemes() []string {
 	return sortedThemeNames
+}
+
+// Bold label on a solid background of the given color
+func badge(hex string) lipgloss.Style {
+	return lipgloss.NewStyle().Bold(true).Padding(0, 1).Background(lipgloss.Color(hex)).Foreground(lipgloss.Color(textOn(hex)))
+}
+
+// Returns black or white, whichever reads better on the given hex background
+func textOn(hex string) string {
+	c, err := colorful.Hex(hex)
+	if err != nil {
+		return "#000000"
+	}
+	if l, _, _ := c.Lab(); l > 0.6 {
+		return "#000000"
+	}
+	return "#ffffff"
 }

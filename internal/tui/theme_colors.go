@@ -12,13 +12,14 @@ type Theme struct {
 	Border      string // input box border
 	Prompt      string // permission prompt border
 	InputBorder string // inactive input border
+	Code        string // chroma style for code blocks
 }
 
 var builtinThemes = map[string]Theme{
 	"default": {
 		Name:        "default",
 		User:        "#5fffaf",
-		Agent:       "#ff5faf",
+		Agent:       "#00add8",
 		Tool:        "#ffaf00",
 		Error:       "#ff0000",
 		Dim:         "#626262",
@@ -26,6 +27,7 @@ var builtinThemes = map[string]Theme{
 		Border:      "#ffaf00",
 		Prompt:      "#ffaf00",
 		InputBorder: "#585858",
+		Code:        "monokai",
 	},
 	"catppuccin": {
 		Name:        "catppuccin",
@@ -38,6 +40,7 @@ var builtinThemes = map[string]Theme{
 		Border:      "#f9e2af",
 		Prompt:      "#fab387",
 		InputBorder: "#313244",
+		Code:        "catppuccin-mocha",
 	},
 	"ayu-dark": {
 		Name:        "ayu-dark",
@@ -50,5 +53,6 @@ var builtinThemes = map[string]Theme{
 		Border:      "#e6b450",
 		Prompt:      "#ff8f40",
 		InputBorder: "#0d1017",
+		Code:        "doom-one",
 	},
 }

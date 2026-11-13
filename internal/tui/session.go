@@ -194,7 +194,7 @@ func (m *Model) resume(idOrPrefix string) error {
 	}
 	m.history = append(m.history, prev.InputHistory...)
 	m.histIdx = len(m.history)
-	m.add(roleInfo, "Resumed session "+prev.ID+".")
+	m.show(roleInfo, "Resumed session "+prev.ID+".")
 	return nil
 }
 
