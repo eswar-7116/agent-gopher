@@ -260,16 +260,22 @@ func flattenCommand(cmd string) string {
 
 // Returns a width-wide window of s starting at pos, wrapping around
 func marquee(s string, width, pos int) string {
-	r := []rune(s)
-	if len(r) <= width {
+	if lipgloss.Width(s) <= width {
 		return s
 	}
-	loop := append(r, []rune(marqueeGap)...)
-	out := make([]rune, width)
-	for i := range out {
-		out[i] = loop[(pos+i)%len(loop)]
+	loop := append([]rune(s), []rune(marqueeGap)...)
+	var b strings.Builder
+	w := 0
+	for i := 0; ; i++ {
+		r := string(loop[(pos+i)%len(loop)])
+		rw := lipgloss.Width(r)
+		if w+rw > width {
+			break
+		}
+		b.WriteString(r)
+		w += rw
 	}
-	return string(out)
+	return b.String() + strings.Repeat(" ", width-w)
 }
 
 // Max diff lines shown in the transcript
@@ -358,8 +364,18 @@ func (m *Model) themeMenuView() string {
 
 func truncate(s string, n int) string {
 	s = strings.Join(strings.Fields(s), " ")
-	if r := []rune(s); len(r) > n {
-		return string(r[:n]) + "…"
+	if lipgloss.Width(s) <= n {
+		return s
 	}
-	return s
+	var b strings.Builder
+	w := 0
+	for _, r := range s {
+		rw := lipgloss.Width(string(r))
+		if w+rw > n {
+			break
+		}
+		b.WriteRune(r)
+		w += rw
+	}
+	return b.String() + "…"
 }
