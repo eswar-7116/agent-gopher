@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/eswar-7116/agent-gopher/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -36,8 +37,12 @@ type MCPServer struct {
 	Tools         []*mcp.Tool
 }
 
+const connectTimeout = 30 * time.Second
+
 func Connect(ctx context.Context, server *config.MCPServerConfig) (*MCPServer, error) {
 	cli := getMCPClient()
+	ctx, cancel := context.WithTimeout(ctx, connectTimeout)
+	defer cancel()
 
 	mcpServer := &MCPServer{
 		Name: server.Name,
@@ -54,6 +59,7 @@ func Connect(ctx context.Context, server *config.MCPServerConfig) (*MCPServer, e
 
 	err = mcpServer.loadTools(ctx)
 	if err != nil {
+		cs.Close()
 		return nil, err
 	}
 
