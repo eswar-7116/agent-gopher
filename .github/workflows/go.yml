@@ -6,8 +6,14 @@ name: Go
 on:
   push:
     branches: [ "main" ]
+    paths-ignore:
+      - "README*"
+      - "LICENSE*"
   pull_request:
     branches: [ "main" ]
+    paths-ignore:
+      - "README*"
+      - "LICENSE*"
 
 jobs:
 
