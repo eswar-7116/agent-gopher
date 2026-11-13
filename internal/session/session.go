@@ -167,10 +167,13 @@ func (s *State) apply(r record) {
 		}
 	case recEntry:
 		s.Entries = append(s.Entries, Entry{Role: r.Role, Content: r.Content, At: r.At})
+		s.Complete = false
 	case recInput:
 		s.InputHistory = append(s.InputHistory, r.Text)
+		s.Complete = false
 	case recMessage:
 		s.Messages = append(s.Messages, r.Message)
+		s.Complete = false
 	case recEnd:
 		s.Complete = true
 		if r.Mode != "" {
@@ -210,6 +213,40 @@ func peek(path string) (*Info, error) {
 		return info, nil
 	}
 	return info, nil
+}
+
+// Resolves a full or prefix session ID to a log path, or an error if missing/ambiguous
+func FindByPrefix(prefix string) (string, error) {
+	dir := paths.SessionsDir
+	if dir == "" {
+		return "", errors.New("session storage is unavailable")
+	}
+	exact := filepath.Join(dir, prefix+Ext)
+	if _, err := os.Stat(exact); err == nil {
+		return exact, nil
+	}
+	names, err := os.ReadDir(dir)
+	if err != nil {
+		return "", err
+	}
+	var matches []string
+	for _, e := range names {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), Ext) {
+			continue
+		}
+		id := strings.TrimSuffix(e.Name(), Ext)
+		if strings.HasPrefix(id, prefix) {
+			matches = append(matches, filepath.Join(dir, e.Name()))
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("no session matching %q", prefix)
+	case 1:
+		return matches[0], nil
+	default:
+		return "", fmt.Errorf("ambiguous session prefix %q (%d matches)", prefix, len(matches))
+	}
 }
 
 // Summarizes the current project's sessions, newest first

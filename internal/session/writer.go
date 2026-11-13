@@ -18,7 +18,13 @@ type Writer struct {
 	f       *os.File
 	armed   bool
 	closed  bool
+	resumed bool // appending to an existing log, so no meta line
 	pending []record
+}
+
+// Continues an existing log; armed since the session is already worth keeping
+func Reopen(path string) *Writer {
+	return &Writer{path: path, armed: true, resumed: true}
 }
 
 // Prepares a log; no file is touched until armed and flushed
@@ -142,6 +148,14 @@ func (w *Writer) open() error {
 	if err != nil {
 		return fmt.Errorf("open session: %w", err)
 	}
+	if w.resumed {
+		if err := terminateTornLine(w.path, f); err != nil {
+			f.Close()
+			return err
+		}
+		w.f = f
+		return nil
+	}
 	w.meta.At = time.Now()
 	line, err := json.Marshal(w.meta)
 	if err != nil {
@@ -153,6 +167,29 @@ func (w *Writer) open() error {
 		return fmt.Errorf("write session meta: %w", err)
 	}
 	w.f = f
+	return nil
+}
+
+// Ends a line left unfinished by a crash so appends start on a fresh line
+func terminateTornLine(path string, f *os.File) error {
+	r, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open session: %w", err)
+	}
+	defer r.Close()
+	st, err := r.Stat()
+	if err != nil || st.Size() == 0 {
+		return err
+	}
+	last := make([]byte, 1)
+	if _, err := r.ReadAt(last, st.Size()-1); err != nil {
+		return fmt.Errorf("read session: %w", err)
+	}
+	if last[0] != '\n' {
+		if _, err := f.Write([]byte{'\n'}); err != nil {
+			return fmt.Errorf("append session: %w", err)
+		}
+	}
 	return nil
 }
 

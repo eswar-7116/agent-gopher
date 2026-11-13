@@ -1,6 +1,10 @@
 package tui
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,6 +41,34 @@ func SaveActiveSession() (string, error) {
 		return "", nil
 	}
 	return m.flushSession()
+}
+
+// Returns executable name (agent-gopher if 'go run' is used)
+func ExecName() string {
+	exe := os.Args[0]
+
+	if cache := goCacheDir(); strings.HasPrefix(exe, os.TempDir()) || cache != "" && strings.HasPrefix(exe, cache) {
+		exe = filepath.Base(exe)
+	}
+
+	return exe
+}
+
+// Returns where go run caches built binaries; empty if unknown
+func goCacheDir() string {
+	if dir := os.Getenv("GOCACHE"); dir != "" && dir != "off" {
+		return dir
+	}
+	if dir, err := os.UserCacheDir(); err == nil {
+		return filepath.Join(dir, "go-build")
+	}
+	return ""
+}
+
+// Returns the command that resumes the session logged at path
+func ResumeHint(path string) string {
+	id := strings.TrimSuffix(filepath.Base(path), session.Ext)
+	return fmt.Sprintf("Resume this session with: %s --resume %s", ExecName(), id)
 }
 
 // Starts the session log; nil if no id could be generated
@@ -127,4 +159,44 @@ func (m *Model) persist() {
 		m.saveFailed = true
 		m.add(roleError, "Could not save chat state: "+err.Error())
 	}
+}
+
+// Continues a saved session in place
+func (m *Model) resume(idOrPrefix string) error {
+	path, err := session.FindByPrefix(idOrPrefix)
+	if err != nil {
+		return err
+	}
+	prev, err := session.Load(path)
+	if err != nil {
+		return err
+	}
+
+	orig := m.agent.Mode()
+	if mode, err := agent.ParseMode(prev.Mode); err == nil {
+		m.agent.SetMode(mode)
+	}
+	if err := m.agent.Restore(prev.Messages); err != nil {
+		m.agent.SetMode(orig)
+		return fmt.Errorf("session %s: %w", prev.ID, err)
+	}
+
+	m.log = session.Reopen(path)
+	m.loggedMessages = len(prev.Messages)
+	for _, e := range prev.Entries {
+		m.entries = append(m.entries, entry{roleFromName(e.Role), e.Content})
+	}
+	m.history = append(m.history, prev.InputHistory...)
+	m.histIdx = len(m.history)
+	m.add(roleInfo, "Resumed session "+prev.ID+".")
+	return nil
+}
+
+func roleFromName(name string) role {
+	for r, n := range roleNames {
+		if n == name {
+			return r
+		}
+	}
+	return roleInfo
 }

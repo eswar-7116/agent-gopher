@@ -61,8 +61,9 @@ type Model struct {
 	ready         bool
 }
 
-// Starts the TUI and blocks until it exits
-func Run(ag *agent.Agent) error {
+// Starts the TUI and blocks until it exits.
+// If resumeID is non-empty the previous session is loaded and its conversation restored.
+func Run(ag *agent.Agent, resumeID string) error {
 	ti := textinput.New()
 	ti.Placeholder = "Message the agent…"
 	ti.CharLimit = 10000
@@ -79,9 +80,19 @@ func Run(ag *agent.Agent) error {
 		input:    ti,
 		spinner:  sp,
 		viewport: vp,
-		log:      newSessionLog(ag),
 	}
-	m.add(roleInfo, "Welcome to Agent Gopher. Enter sends · PgUp/PgDn scroll · Esc cancels a running task · Ctrl+C or /exit quits.")
+
+	var resumeErr error
+	if resumeID != "" {
+		resumeErr = m.resume(resumeID)
+	}
+	if resumeID == "" || resumeErr != nil {
+		m.log = newSessionLog(ag)
+		m.add(roleInfo, "Welcome to Agent Gopher. Enter sends · PgUp/PgDn scroll · Esc cancels a running task · Ctrl+C or /exit quits.")
+		if resumeErr != nil {
+			m.add(roleError, "Could not resume session: "+resumeErr.Error()+". Started a new chat.")
+		}
+	}
 	if w := ThemeWarning(); w != "" {
 		m.add(roleError, w)
 	}
@@ -109,7 +120,7 @@ func Run(ag *agent.Agent) error {
 	if path, saveErr := m.closeSession(); saveErr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to save chat state: %v\n", saveErr)
 	} else if path != "" {
-		fmt.Printf("Chat state saved to %s\n", path)
+		fmt.Println(ResumeHint(path))
 	}
 	return err
 }

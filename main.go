@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -19,6 +20,13 @@ import (
 )
 
 func main() {
+	resumeID := flag.String("resume", "", "resume a previous session by its ID (or unique prefix)")
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", tui.ExecName())
+		flag.PrintDefaults()
+	}
+	flag.Parse()
+
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 	go func() {
@@ -70,7 +78,7 @@ func main() {
 		OnWhitelist:     onWhitelist,
 	})
 
-	if err := tui.Run(agentGopher); err != nil {
+	if err := tui.Run(agentGopher, *resumeID); err != nil {
 		fmt.Printf("Error running TUI: %v\n", err)
 		os.Exit(1)
 	}
@@ -85,7 +93,7 @@ func saveChatState() {
 	case err != nil:
 		fmt.Fprintf(os.Stderr, "\nWarning: failed to save chat state: %v\n", err)
 	case path != "":
-		fmt.Printf("\nChat state saved to %s\n", path)
+		fmt.Printf("\n%s\n", tui.ResumeHint(path))
 	}
 }
 

@@ -331,6 +331,130 @@ func TestListSummarizesNewestFirstAndSkipsJunk(t *testing.T) {
 	}
 }
 
+func TestReopenAppendsToTheSameLog(t *testing.T) {
+	isolateHome(t)
+	w := newTestWriter(t, "resumable")
+	w.Arm()
+	w.AppendEntry("user", "hello", time.Time{})
+	if err := w.Close("plan"); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	r := Reopen(w.Path())
+	r.AppendEntry("user", "again", time.Time{})
+	if err := r.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	s, err := Load(w.Path())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if s.ID != "resumable" || len(s.Entries) != 2 || s.Entries[1].Content != "again" {
+		t.Fatalf("reopened log = %+v", s)
+	}
+	if s.Complete {
+		t.Fatal("Complete = true with records after the old end record")
+	}
+	if err := r.Close("normal"); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	data, _ := os.ReadFile(w.Path())
+	if bytes.Count(data, []byte(`"type":"meta"`)) != 1 {
+		t.Fatal("reopening wrote a second meta line")
+	}
+	if s, _ := Load(w.Path()); !s.Complete || s.Mode != "normal" {
+		t.Fatalf("after second close: complete %v, mode %q", s.Complete, s.Mode)
+	}
+}
+
+func TestReopenStartsAfterATornLine(t *testing.T) {
+	isolateHome(t)
+	w := newTestWriter(t, "tornresume")
+	w.Arm()
+	w.AppendEntry("user", "hello", time.Time{})
+	if err := w.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	f, _ := os.OpenFile(w.Path(), os.O_APPEND|os.O_WRONLY, 0)
+	f.WriteString(`{"type":"entry","role":"assis`)
+	f.Close()
+
+	r := Reopen(w.Path())
+	t.Cleanup(func() { r.Close("normal") })
+	r.AppendEntry("user", "after crash", time.Time{})
+	if err := r.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	s, err := Load(w.Path())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(s.Entries) != 2 || s.Entries[1].Content != "after crash" {
+		t.Fatalf("entry after the torn line was lost: %+v", s.Entries)
+	}
+}
+
+func TestFindByPrefixExactMatch(t *testing.T) {
+	isolateHome(t)
+	w := newTestWriter(t, "findme12345")
+	w.Arm()
+	w.AppendEntry("assistant", "hi", time.Time{})
+	if err := w.Close("normal"); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	path, err := FindByPrefix("findme12345")
+	if err != nil {
+		t.Fatalf("FindByPrefix exact: %v", err)
+	}
+	if path != w.Path() {
+		t.Fatalf("got %q, want %q", path, w.Path())
+	}
+}
+
+func TestFindByPrefixPartialMatch(t *testing.T) {
+	isolateHome(t)
+	w := newTestWriter(t, "uniqueprefix999")
+	w.Arm()
+	w.AppendEntry("assistant", "hi", time.Time{})
+	if err := w.Close("normal"); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	path, err := FindByPrefix("uniqueprefix")
+	if err != nil {
+		t.Fatalf("FindByPrefix prefix: %v", err)
+	}
+	if path != w.Path() {
+		t.Fatalf("got %q, want %q", path, w.Path())
+	}
+}
+
+func TestFindByPrefixNoMatch(t *testing.T) {
+	isolateHome(t)
+	_, err := FindByPrefix("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for missing session")
+	}
+}
+
+func TestFindByPrefixAmbiguous(t *testing.T) {
+	isolateHome(t)
+	for _, id := range []string{"ambig_aaa", "ambig_bbb"} {
+		w := newTestWriter(t, id)
+		w.Arm()
+		w.AppendEntry("assistant", "hi", time.Time{})
+		if err := w.Close("normal"); err != nil {
+			t.Fatalf("Close %s: %v", id, err)
+		}
+	}
+	_, err := FindByPrefix("ambig_")
+	if err == nil {
+		t.Fatal("expected ambiguous error")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("error = %q, want ambiguous", err.Error())
+	}
+}
+
 func TestListOnMissingDirIsEmpty(t *testing.T) {
 	paths.InitWithBase(t.TempDir(), "/tmp/never-used")
 	t.Cleanup(func() { paths.InitWithBase("", "") })

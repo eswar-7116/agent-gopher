@@ -355,6 +355,35 @@ func (a *Agent) appendMessages(msgs ...openai.ChatCompletionMessageParamUnion) {
 	a.messages = append(a.messages, msgs...)
 }
 
+// Replaces the conversation history with messages saved by MessagesJSONFrom
+func (a *Agent) Restore(raw []json.RawMessage) error {
+	msgs := make([]openai.ChatCompletionMessageParamUnion, 0, len(raw))
+	for i, r := range raw {
+		var msg openai.ChatCompletionMessageParamUnion
+		if err := json.Unmarshal(r, &msg); err != nil {
+			return fmt.Errorf("decode message %d: %w", i, err)
+		}
+		msgs = append(msgs, msg)
+	}
+	a.msgMu.Lock()
+	a.messages = msgs
+	a.msgMu.Unlock()
+
+	// Announce memory on the next run only if it changed since the model last saw it
+	a.memorySeen = ""
+	cur := a.currentMemory()
+	for _, msg := range msgs {
+		if msg.OfSystem == nil {
+			continue
+		}
+		c := msg.OfSystem.Content.OfString.Value
+		if c == cur || c == "Global memory was updated. Current contents:\n"+cur {
+			a.memorySeen = cur
+		}
+	}
+	return nil
+}
+
 // Returns the number of messages in the conversation history
 func (a *Agent) messageCount() int {
 	a.msgMu.RLock()
