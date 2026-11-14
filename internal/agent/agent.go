@@ -30,6 +30,7 @@ type Agent struct {
 
 	onToolCall func(name, arguments string)
 	onText     func(text string)
+	onThinking func(text string)
 	onInjected func(texts []string)
 	onNotice   func(text string)
 
@@ -165,6 +166,11 @@ func (a *Agent) currentMemory() string {
 		return global
 	}
 	return global + "\n\n" + project
+}
+
+// Sets a callback to receive reasoning deltas as they stream in
+func (a *Agent) SetThinkingCallback(fn func(delta string)) {
+	a.onThinking = fn
 }
 
 // Sets a callback for status notices such as compaction
@@ -308,7 +314,7 @@ func (a *Agent) Run(ctx context.Context, userPrompt string) error {
 	return nil
 }
 
-// Performs one streamed LLM round-trip, forwarding text deltas to onText if emit; also returns reported total tokens
+// Performs one streamed LLM round-trip, forwarding text deltas to onText if emit and returns reported total tokens
 func (a *Agent) complete(ctx context.Context, params openai.ChatCompletionNewParams, emit bool) (openai.ChatCompletionMessage, int, error) {
 	stream := a.client.Chat.Completions.NewStreaming(ctx, params)
 	defer stream.Close()
@@ -317,8 +323,16 @@ func (a *Agent) complete(ctx context.Context, params openai.ChatCompletionNewPar
 	for stream.Next() {
 		chunk := stream.Current()
 		acc.AddChunk(chunk)
-		if emit && a.onText != nil && len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
-			a.onText(chunk.Choices[0].Delta.Content)
+		if emit && len(chunk.Choices) > 0 {
+			d := chunk.Choices[0].Delta
+			if a.onThinking != nil {
+				if t := reasoningDelta(d); t != "" {
+					a.onThinking(t)
+				}
+			}
+			if a.onText != nil && d.Content != "" {
+				a.onText(d.Content)
+			}
 		}
 	}
 	tokens := int(acc.Usage.TotalTokens)
@@ -445,8 +459,7 @@ func (a *Agent) GetMessages() []openai.ChatCompletionMessageParamUnion {
 	return messages
 }
 
-// Returns messages from index from, each encoded as JSON, and the current epoch;
-// if epoch is stale the history was compacted, so all messages are returned
+// Returns messages from index from, each encoded as JSON, and the current epoch
 func (a *Agent) LogTail(epoch, from int) ([]json.RawMessage, int, error) {
 	a.msgMu.RLock()
 	cur := a.epoch
@@ -479,6 +492,21 @@ func (a *Agent) GetLastAssistantMessage() string {
 			if msg.OfAssistant.Content.OfString.Valid() {
 				return msg.OfAssistant.Content.OfString.Value
 			}
+		}
+	}
+	return ""
+}
+
+// reasoning text from reasoning_content or reasoning
+func reasoningDelta(d openai.ChatCompletionChunkChoiceDelta) string {
+	for _, k := range []string{"reasoning_content", "reasoning"} {
+		f, ok := d.JSON.ExtraFields[k]
+		if !ok {
+			continue
+		}
+		var t string
+		if json.Unmarshal([]byte(f.Raw()), &t) == nil && t != "" {
+			return t
 		}
 	}
 	return ""

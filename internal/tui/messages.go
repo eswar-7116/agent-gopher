@@ -5,6 +5,7 @@ import "github.com/eswar-7116/agent-gopher/internal/tools"
 // Messages sent for the agent goroutine
 type (
 	textMsg        string
+	thinkingMsg    string
 	noticeMsg      string
 	toolCallMsg    struct{ name, args string }
 	doneMsg        struct{ err error }
@@ -17,3 +18,5 @@ type (
 )
 
 type permReply struct{ choice, alt string }
+
+type quitDisarmMsg struct{}

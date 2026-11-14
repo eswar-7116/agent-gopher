@@ -20,6 +20,7 @@ var roleNames = map[role]string{
 	roleError:     "error",
 	roleInfo:      "info",
 	roleDiff:      "diff",
+	roleThinking:  "thinking",
 }
 
 var (

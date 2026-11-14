@@ -11,6 +11,7 @@ const (
 	roleError
 	roleInfo
 	roleDiff
+	roleThinking
 )
 
 type entry struct {

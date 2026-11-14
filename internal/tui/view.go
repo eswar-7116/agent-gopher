@@ -37,10 +37,10 @@ func (m *Model) show(r role, content string) {
 }
 
 // Appends streamed text to the entry in progress
-func (m *Model) appendToLast(content string) bool {
+func (m *Model) appendToLast(r role, content string) bool {
 	m.stateMu.Lock()
 	defer m.stateMu.Unlock()
-	if len(m.entries) == 0 {
+	if len(m.entries) == 0 || m.entries[len(m.entries)-1].role != r {
 		return false
 	}
 	m.entries[len(m.entries)-1].content += content
@@ -98,6 +98,10 @@ func (m *Model) refresh() {
 			b.WriteString(errorStyle.Width(w).Render("✗ " + e.content))
 			b.WriteString("\n\n")
 			continue
+		case roleThinking:
+			b.WriteString(dimStyle.Italic(true).Width(w).Render(strings.TrimSpace(e.content)))
+			b.WriteString("\n\n")
+			continue
 		case roleDiff:
 			b.WriteString(renderDiff(e.content, w))
 			b.WriteString("\n\n")
@@ -123,7 +127,8 @@ func (m *Model) refresh() {
 	if m.running && m.perm == nil {
 		b.WriteString(dimStyle.Render(m.spinner.View() + " working…"))
 	}
-	m.viewport.SetContent(b.String())
+	m.lines = strings.Split(b.String(), "\n")
+	m.applySelection()
 	if atBottom || hasEntries && lastRole == roleUser {
 		m.viewport.GotoBottom()
 	}
@@ -186,12 +191,14 @@ func (m *Model) statusLine() string {
 	}
 	var hint string
 	switch {
+	case m.quitArmed:
+		hint = "Press Ctrl+C again to quit"
 	case m.urgent:
 		hint = "Interrupting…"
 	case m.running:
 		hint = "Enter queue · Alt+Enter interrupt & send · Esc/Ctrl+C cancel"
 	default:
-		hint = "/ commands · Enter send · ↑/↓ history · PgUp/PgDn scroll · Ctrl+C quit"
+		hint = "/ commands · Enter send · ↑/↓ history · PgUp/PgDn scroll · Ctrl+C×2 quit"
 	}
 	return modeTag + hint + m.contextUsage()
 }

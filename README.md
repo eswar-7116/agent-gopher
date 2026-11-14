@@ -151,7 +151,8 @@ All tools the server exposes are registered alongside the built-in tools as `<na
 | ↑ / ↓ | Navigate input history |
 | PgUp / PgDn | Scroll the conversation |
 | Tab | Complete a slash-command suggestion |
-| Ctrl+C | Quit |
+| Mouse drag | Select text (copied on release) |
+| Ctrl+C | Clear the selection if any, else cancel the running task, else press twice to quit |
 
 ### During a permission prompt
 

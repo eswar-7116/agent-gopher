@@ -63,6 +63,11 @@ type Model struct {
 	lastWheel    time.Time
 	lastWheelDir tea.MouseButton
 
+	lines []string // rendered viewport content
+	sel   selection
+
+	quitArmed bool // Ctrl+C pressed once; next press quits
+
 	width, height int
 	ready         bool
 }
@@ -95,7 +100,7 @@ func Run(ag *agent.Agent, resumeID string, startupErrors []string) error {
 	}
 	if resumeID == "" || resumeErr != nil {
 		m.log = newSessionLog(ag)
-		m.add(roleInfo, "Welcome to Agent Gopher. Enter sends · PgUp/PgDn scroll · Esc cancels a running task · Ctrl+C or /exit quits.")
+		m.add(roleInfo, "Welcome to Agent Gopher. Enter sends · PgUp/PgDn scroll · Esc cancels a running task · Ctrl+C twice or /exit quits.")
 		if resumeErr != nil {
 			m.add(roleError, "Could not resume session: "+resumeErr.Error()+". Started a new chat.")
 		}
@@ -116,6 +121,7 @@ func Run(ag *agent.Agent, resumeID string, startupErrors []string) error {
 
 	ag.SetToolCallCallback(func(name, args string) { p.Send(toolCallMsg{name, args}) })
 	ag.SetTextCallback(func(t string) { p.Send(textMsg(t)) })
+	ag.SetThinkingCallback(func(t string) { p.Send(thinkingMsg(t)) })
 	ag.SetInjectedCallback(func(t []string) { p.Send(injectedMsg(t)) })
 	ag.SetNoticeCallback(func(t string) { p.Send(noticeMsg(t)) })
 	tools.PromptPermission = func(req tools.PermissionRequest) (string, string) {
@@ -160,8 +166,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 
+	case quitDisarmMsg:
+		m.quitArmed = false
+		return m, nil
+
+	case thinkingMsg:
+		if m.IsStreaming && m.appendToLast(roleThinking, string(msg)) {
+			m.refresh()
+		} else {
+			m.add(roleThinking, string(msg))
+			m.IsStreaming = true
+		}
+		return m, nil
+
 	case textMsg:
-		if m.IsStreaming && m.appendToLast(string(msg)) {
+		if m.IsStreaming && m.appendToLast(roleAssistant, string(msg)) {
 			m.refresh()
 		} else {
 			m.add(roleAssistant, string(msg))
@@ -237,7 +256,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseWheelMsg:
 		m.handleWheel(msg)
+		if m.sel.dragging {
+			m.sel.end = m.contentPos(msg.Mouse().X, msg.Mouse().Y)
+			m.applySelection()
+		}
 		return m, nil
+
+	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+		return m, m.handleMouse(msg.(tea.MouseMsg))
 	}
 
 	var cmd tea.Cmd

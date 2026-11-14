@@ -2,15 +2,26 @@ package tui
 
 import (
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
 
+const quitWindow = 2 * time.Second
+
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	if key != "ctrl+c" {
+		m.quitArmed = false
+	}
 
 	switch key {
 	case "ctrl+c":
+		// Ptyxis passes Ctrl+Shift+C through as ^C; just drop the highlight
+		if !m.sel.empty() {
+			m.clearSelection()
+			return m, nil
+		}
 		if m.perm != nil {
 			m.answer("n", "")
 		}
@@ -18,7 +29,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cancel()
 			return m, nil
 		}
-		return m, tea.Quit
+		if m.quitArmed {
+			return m, tea.Quit
+		}
+		m.quitArmed = true
+		return m, tea.Tick(quitWindow, func(time.Time) tea.Msg { return quitDisarmMsg{} })
 	case "pgup", "pgdown", "ctrl+u", "ctrl+d":
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)

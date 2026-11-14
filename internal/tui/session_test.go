@@ -44,7 +44,7 @@ func streamReply(m *Model, deltas ...string) {
 		if i == 0 {
 			m.add(roleAssistant, d)
 		} else {
-			m.appendToLast(d)
+			m.appendToLast(roleAssistant, d)
 		}
 	}
 }
